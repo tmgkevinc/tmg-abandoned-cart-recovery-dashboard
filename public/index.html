@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TMG Lead Recovery Workspace</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="loginOverlay" class="login-overlay">
+      <form id="loginForm" class="login-card">
+        <p class="eyebrow">TMG Data Hub</p>
+        <h1>Lead Recovery Workspace</h1>
+        <label>
+          <span>User</span>
+          <select id="loginUser">
+            <option value="Admin">Admin</option>
+          </select>
+        </label>
+        <label>
+          <span>View mode</span>
+          <select id="loginRole">
+            <option value="admin">Admin</option>
+            <option value="sales">Sales</option>
+          </select>
+        </label>
+        <button type="submit">Open Dashboard</button>
+        <p id="loginStatus" class="muted"></p>
+      </form>
+    </div>
+
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Lead Checks and Assignment</p>
+          <h1>TMG Lead Recovery Workspace</h1>
+          <p id="dataFreshness" class="subtle">Data Hub status has not loaded yet.</p>
+        </div>
+        <div class="user-panel">
+          <span id="currentUserLabel">Not signed in</span>
+          <button id="switchUserButton" type="button">Switch User</button>
+        </div>
+      </header>
+
+      <nav class="tab-nav" aria-label="Dashboard tabs">
+        <button class="tab-button active" type="button" data-tab="workspace">Lead Workspace</button>
+        <button class="tab-button" type="button" data-tab="rules">Rules & Funnel</button>
+      </nav>
+
+      <section id="workspaceTab" class="tab-panel active">
+        <section id="marketSummary" class="metric-grid" aria-label="Market summary"></section>
+
+        <section id="salesPersonalSummary" class="sales-personal-summary" aria-label="Sales personal summary"></section>
+
+        <section class="sales-overview-strip" aria-label="Sales assignment overview">
+          <div class="sales-overview-heading">
+            <h3>Sales Assignment Overview</h3>
+            <p>Only active assigned leads are counted.</p>
+          </div>
+          <div id="salesOverview" class="sales-overview"></div>
+        </section>
+
+        <section class="controls" aria-label="Filters">
+          <label>
+            <span>Market</span>
+            <select id="marketFilter">
+              <option value="ALL">All stores</option>
+              <option value="US">US</option>
+              <option value="CA">CA</option>
+              <option value="AU">AU</option>
+            </select>
+          </label>
+          <label>
+            <span>Lead status</span>
+            <select id="leadStatusFilter">
+              <option value="ALL">All</option>
+              <option value="Valid" selected>Valid</option>
+              <option value="Invalid">Invalid</option>
+              <option value="Recovered Auto">Recovered Auto</option>
+              <option value="Recovered by Sales">Recovered by Sales</option>
+            </select>
+          </label>
+          <label>
+            <span>Grade</span>
+            <select id="gradeFilter">
+              <option value="ALL">All grades</option>
+            </select>
+          </label>
+          <label>
+            <span>Assigned sales</span>
+            <select id="salesFilter">
+              <option value="ALL">All sales</option>
+            </select>
+          </label>
+          <label class="search-field">
+            <span>Search</span>
+            <input id="searchInput" type="search" placeholder="Checkout, name, email, phone, SKU" />
+          </label>
+          <button id="refreshButton" type="button">Refresh Data Hub</button>
+        </section>
+
+        <section class="panel qualified-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Abandoned Cart Leads</h2>
+              <p id="qualifiedSubtitle">Load Data Hub leads to begin.</p>
+            </div>
+            <button id="exportVisibleButton" type="button">Export Visible CSV</button>
+          </div>
+          <div class="table-wrap">
+            <table class="lead-table">
+              <thead id="leadTableHead"></thead>
+              <tbody id="leadTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel sales-detail-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Sales Lead Details</h2>
+              <p id="salesDetailSubtitle">Sales view shows only the signed-in user's assigned leads.</p>
+            </div>
+            <button id="exportSalesTabsButton" type="button">Export Sales CSV</button>
+          </div>
+          <section class="detail-controls" aria-label="Sales lead detail filters">
+            <label>
+              <span>Market</span>
+              <select id="salesMarketFilter">
+                <option value="ALL">All stores</option>
+                <option value="US">US</option>
+                <option value="CA">CA</option>
+                <option value="AU">AU</option>
+              </select>
+            </label>
+            <label>
+              <span>Lead status</span>
+              <select id="salesLeadStatusFilter">
+                <option value="ALL">All</option>
+                <option value="Valid" selected>Valid</option>
+                <option value="Invalid">Invalid</option>
+                <option value="Recovered Auto">Recovered Auto</option>
+                <option value="Recovered by Sales">Recovered by Sales</option>
+              </select>
+            </label>
+            <label>
+              <span>Grade</span>
+              <select id="salesGradeFilter">
+                <option value="ALL">All grades</option>
+              </select>
+            </label>
+            <label>
+              <span>Assigned sales</span>
+              <select id="salesDetailSalesFilter">
+                <option value="ALL">All sales</option>
+              </select>
+            </label>
+            <label class="search-field">
+              <span>Search</span>
+              <input id="salesSearchInput" type="search" placeholder="Checkout, name, email, phone, SKU" />
+            </label>
+          </section>
+          <div class="table-wrap">
+            <table class="lead-table">
+              <thead id="salesTableHead"></thead>
+              <tbody id="salesTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="rulesTab" class="tab-panel">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Rules & Funnel</h2>
+              <p>Current lead selection logic used by this dashboard.</p>
+            </div>
+          </div>
+          <div id="rulesFunnel" class="rules-funnel"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
