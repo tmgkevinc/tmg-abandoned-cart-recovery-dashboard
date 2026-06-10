@@ -1,0 +1,11 @@
+.env
+.env.*
+lead-assignments.json
+reminders.json
+*.log
+server*.out.log
+server*.err.log
+node_modules
+.git
+.DS_Store
+Thumbs.db
