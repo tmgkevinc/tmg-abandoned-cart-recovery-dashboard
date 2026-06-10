@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tmg-abandoned-cart-recovery-dashboard",
+  "main": "src/index.js",
+  "compatibility_date": "2026-06-10",
+  "vars": {
+    "TMG_DATA_HUB_BASE_URL": "https://tmg-data-hub-api.tony-t.workers.dev",
+    "DASHBOARD_AUTH_MODE": "cloudflare_access",
+    "ADMIN_EMAILS": "kevin.c@tmgindustrial.com;raina.l@tmgindustrial.com;tony.t@tmgindustrial.com;davidc@tmgindustrial.com",
+    "SALES_EMAIL_MAP": "michael.g@tmgindustrial.com=Michael;brian.r@tmgindustrial.com=Brian;brian.l@tmgindustrial.com=Steven;adam.g@tmgindustrial.com=Adam;johnny.c@tmgindustrial.com=Johnny;josh.a@tmgindustrial.com=Josh;arsenio.b@tmgindustrial.com=Arsenio",
+    "DATA_HUB_ASSIGNMENTS_WRITE_PATH": "/api/data-hub/lead-assignments/upsert",
+    "DATA_HUB_ASSIGNMENTS_READ_PATH": "/api/data-hub/reports/lead-assignments"
+  },
+  "containers": [
+    {
+      "class_name": "DashboardContainer",
+      "image": "./Dockerfile",
+      "max_instances": 2
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DASHBOARD_CONTAINER",
+        "class_name": "DashboardContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "DashboardContainer"
+      ]
+    }
+  ]
+}
