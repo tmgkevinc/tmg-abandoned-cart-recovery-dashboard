@@ -31,8 +31,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN#CLOUDFLARE_API_TOKEN=}"
-          export CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID#CLOUDFLARE_ACCOUNT_ID=}"
-          export CLOUDFLARE_API_TOKEN="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | tr -d '\r\n' | sed "s/^['\"]//;s/['\"]$//")"
-          export CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '\r\n' | sed "s/^['\"]//;s/['\"]$//")"
+          normalize_secret() {
+            value="$1"
+            case "$value" in
+              *=*) value="${value##*=}" ;;
+            esac
+            value="${value#Bearer }"
+            value="${value#bearer }"
+            printf '%s' "$value" | tr -d '\r\n[:space:]' | sed "s/^['\"]//;s/['\"]$//"
+          }
+          export CLOUDFLARE_API_TOKEN="$(normalize_secret "$CLOUDFLARE_API_TOKEN")"
+          export CLOUDFLARE_ACCOUNT_ID="$(normalize_secret "$CLOUDFLARE_ACCOUNT_ID")"
           npx wrangler deploy
