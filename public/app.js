@@ -9,6 +9,7 @@ const els = {
   dataFreshness: document.querySelector("#dataFreshness"),
   tabButtons: document.querySelectorAll("[data-tab]"),
   workspaceTab: document.querySelector("#workspaceTab"),
+  draftsTab: document.querySelector("#draftsTab"),
   rulesTab: document.querySelector("#rulesTab"),
   marketFilter: document.querySelector("#marketFilter"),
   leadStatusFilter: document.querySelector("#leadStatusFilter"),
@@ -20,6 +21,10 @@ const els = {
   salesGradeFilter: document.querySelector("#salesGradeFilter"),
   salesDetailSalesFilter: document.querySelector("#salesDetailSalesFilter"),
   salesSearchInput: document.querySelector("#salesSearchInput"),
+  draftMarketFilter: document.querySelector("#draftMarketFilter"),
+  draftLeadStatusFilter: document.querySelector("#draftLeadStatusFilter"),
+  draftSalesFilter: document.querySelector("#draftSalesFilter"),
+  draftSearchInput: document.querySelector("#draftSearchInput"),
   refreshButton: document.querySelector("#refreshButton"),
   marketSummary: document.querySelector("#marketSummary"),
   salesPersonalSummary: document.querySelector("#salesPersonalSummary"),
@@ -30,8 +35,13 @@ const els = {
   salesTableHead: document.querySelector("#salesTableHead"),
   salesTableBody: document.querySelector("#salesTableBody"),
   salesDetailSubtitle: document.querySelector("#salesDetailSubtitle"),
+  draftSummary: document.querySelector("#draftSummary"),
+  draftTableHead: document.querySelector("#draftTableHead"),
+  draftTableBody: document.querySelector("#draftTableBody"),
+  draftSubtitle: document.querySelector("#draftSubtitle"),
   exportVisibleButton: document.querySelector("#exportVisibleButton"),
   exportSalesTabsButton: document.querySelector("#exportSalesTabsButton"),
+  exportDraftButton: document.querySelector("#exportDraftButton"),
   rulesFunnel: document.querySelector("#rulesFunnel"),
 };
 
@@ -68,8 +78,10 @@ let state = {
   authEmail: "",
   salesUsers: [],
   leads: [],
+  drafts: [],
   visibleLeads: [],
   salesVisibleLeads: [],
+  visibleDrafts: [],
 };
 
 els.loginForm.addEventListener("submit", (event) => {
@@ -88,9 +100,10 @@ els.switchUserButton.addEventListener("click", () => {
   els.loginOverlay.hidden = false;
 });
 
-els.refreshButton.addEventListener("click", loadLeads);
+els.refreshButton.addEventListener("click", loadAllData);
 els.exportVisibleButton.addEventListener("click", () => exportCsv(state.visibleLeads, "visible-leads"));
 els.exportSalesTabsButton.addEventListener("click", () => exportCsv(state.salesVisibleLeads, "sales-lead-detail"));
+els.exportDraftButton.addEventListener("click", () => exportCsv(state.visibleDrafts, "draft-recovery-leads"));
 els.tabButtons.forEach((button) => button.addEventListener("click", () => setActiveTab(button.dataset.tab)));
 
 for (const control of [els.marketFilter, els.leadStatusFilter, els.gradeFilter, els.salesFilter, els.searchInput]) {
@@ -107,12 +120,19 @@ for (const control of [
   control.addEventListener("input", applyFilters);
 }
 
+for (const control of [els.draftMarketFilter, els.draftLeadStatusFilter, els.draftSalesFilter, els.draftSearchInput]) {
+  control.addEventListener("input", applyFilters);
+}
+
 els.leadTableBody.addEventListener("change", handleLeadChange);
 els.leadTableBody.addEventListener("input", handleLeadInput);
 els.leadTableBody.addEventListener("click", handleLeadClick);
 els.salesTableBody.addEventListener("change", handleLeadChange);
 els.salesTableBody.addEventListener("input", handleLeadInput);
 els.salesTableBody.addEventListener("click", handleLeadClick);
+els.draftTableBody.addEventListener("change", handleLeadChange);
+els.draftTableBody.addEventListener("input", handleLeadInput);
+els.draftTableBody.addEventListener("click", handleLeadClick);
 
 initialize();
 
@@ -123,7 +143,12 @@ async function initialize() {
   if (!cloudflareSessionApplied) restoreSession();
   if (state.authBlocked) return;
   await loadFreshness();
+  await loadAllData();
+}
+
+async function loadAllData() {
   await loadLeads();
+  await loadDrafts();
 }
 
 async function loadSession() {
@@ -187,6 +212,11 @@ async function loadHealth() {
     els.salesDetailSalesFilter.innerHTML = [
       `<option value="ALL">All sales</option>`,
       ...state.salesUsers.filter((name) => name !== "Non-sales").map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
+    ].join("");
+    els.draftSalesFilter.innerHTML = [
+      `<option value="ALL">All sales</option>`,
+      `<option value="">Unassigned</option>`,
+      ...state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
     ].join("");
     els.loginStatus.textContent = health.dataHubConfigured
       ? "Data Hub connection is configured."
@@ -254,9 +284,27 @@ async function loadLeads() {
   }
 }
 
+async function loadDrafts() {
+  try {
+    const response = await fetch("/api/drafts?market=US,CA,AU&limit=50000", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not load drafts.");
+    state.drafts = data.drafts || [];
+    renderDraftSummary(data.summary || {});
+    applyFilters();
+    els.draftSubtitle.textContent = `${state.drafts.length.toLocaleString()} open draft orders with manual shipping loaded from Data Hub.`;
+  } catch (error) {
+    state.drafts = [];
+    renderDraftSummary({});
+    applyFilters();
+    els.draftSubtitle.textContent = error.message;
+  }
+}
+
 function setActiveTab(tabName) {
   els.tabButtons.forEach((button) => button.classList.toggle("active", button.dataset.tab === tabName));
   els.workspaceTab.classList.toggle("active", tabName === "workspace");
+  els.draftsTab.classList.toggle("active", tabName === "drafts");
   els.rulesTab.classList.toggle("active", tabName === "rules");
 }
 
@@ -279,9 +327,12 @@ function renderUserMode() {
     els.salesFilter.disabled = true;
     els.salesDetailSalesFilter.value = state.user;
     els.salesDetailSalesFilter.disabled = true;
+    els.draftSalesFilter.value = state.user;
+    els.draftSalesFilter.disabled = true;
   } else {
     els.salesFilter.disabled = false;
     els.salesDetailSalesFilter.disabled = false;
+    els.draftSalesFilter.disabled = false;
   }
 }
 
@@ -342,6 +393,25 @@ function renderSummary(summary) {
           <small>Recovered by sales: ${recovered.count.toLocaleString()}</small>
           <small>${formatMarketAmounts(recovered.amountsByMarket)} recovered value</small>
           <small>Last assigned: ${row.lastAssignedAt ? `${formatDateTime(row.lastAssignedAt)} (${formatRelativeAgo(row.lastAssignedAt)})` : "-"}</small>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderDraftSummary(summary) {
+  const byMarket = summary.byMarket || {};
+  const latest = summary.latestCreatedAt || {};
+  els.draftSummary.innerHTML = markets
+    .map((market) => {
+      const item = byMarket[market] || { total: 0, valid: 0, assigned: 0, amount: 0, validAmount: 0, manualShipping: 0 };
+      return `
+        <article class="metric market-${market.toLowerCase()}">
+          <span>${market}</span>
+          <strong>${Number(item.valid || 0).toLocaleString()} recovery-ready / ${Number(item.total || 0).toLocaleString()} manual-shipping drafts</strong>
+          <small>${formatMoney(item.validAmount || 0, marketCurrency(market))} recovery-ready / ${formatMoney(item.amount || 0, marketCurrency(market))} total</small>
+          <small>${Number(item.assigned || 0).toLocaleString()} valid assigned</small>
+          <small>Latest: ${latest[market] ? formatDateTime(latest[market]) : "-"}</small>
         </article>
       `;
     })
@@ -518,6 +588,10 @@ function applyFilters() {
   const salesGrade = els.salesGradeFilter.value;
   const salesDetailSales = els.salesDetailSalesFilter.value;
   const salesQuery = els.salesSearchInput.value.trim().toLowerCase();
+  const draftMarket = els.draftMarketFilter.value;
+  const draftLeadStatus = els.draftLeadStatusFilter.value;
+  const draftSales = els.draftSalesFilter.value;
+  const draftQuery = els.draftSearchInput.value.trim().toLowerCase();
 
   state.visibleLeads = state.leads.filter((lead) => {
     if (market !== "ALL" && lead.market !== market) return false;
@@ -539,9 +613,18 @@ function applyFilters() {
     .filter((lead) => (salesQuery ? searchBlob(lead).includes(salesQuery) : true))
     .sort(sortByGradeThenDate);
 
+  state.visibleDrafts = state.drafts
+    .filter((draft) => (draftMarket !== "ALL" ? draft.market === draftMarket : true))
+    .filter((draft) => (draftLeadStatus !== "ALL" ? getLeadStatus(draft) === draftLeadStatus : true))
+    .filter((draft) => (draftSales !== "ALL" ? (draft.assignedSales || "") === draftSales : true))
+    .filter((draft) => (state.role === "sales" && state.user !== "Admin" ? draft.assignedSales === state.user : true))
+    .filter((draft) => (draftQuery ? searchBlob(draft).includes(draftQuery) : true))
+    .sort(sortBySubtotalDesc);
+
   renderSalesPersonalSummary();
   renderLeadRows();
   renderSalesRows();
+  renderDraftRows();
 }
 
 function renderSalesPersonalSummary() {
@@ -619,6 +702,32 @@ function renderTableHeads() {
   const head = `<tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>`;
   els.leadTableHead.innerHTML = head;
   els.salesTableHead.innerHTML = head;
+
+  const draftProductColumns = [];
+  for (let i = 1; i <= 7; i += 1) {
+    draftProductColumns.push(`Product ${i}`, `SKU ${i}`, `Draft Price ${i}`, `Current Price ${i}`, `Inventory ${i}`, `Product URL ${i}`);
+  }
+  const draftColumns = [
+    "Lead Status",
+    "Market",
+    "Draft",
+    "Sales",
+    "Leads notes",
+    "Created At Date",
+    "Draft Status",
+    "Subtotal",
+    "Total",
+    "Manual Shipping",
+    "Customer",
+    "Phone",
+    "Email",
+    "Shipping Address",
+    "Time Zone",
+    "Tags",
+    "Opportunity Reason",
+    ...draftProductColumns,
+  ];
+  els.draftTableHead.innerHTML = `<tr>${draftColumns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>`;
 }
 
 function renderLeadRows() {
@@ -639,6 +748,14 @@ function renderSalesRows() {
   els.salesDetailSubtitle.textContent = `${state.salesVisibleLeads.length.toLocaleString()} active assigned leads.`;
 }
 
+function renderDraftRows() {
+  if (!state.visibleDrafts.length) {
+    els.draftTableBody.innerHTML = `<tr class="empty-row"><td colspan="59">No draft recovery leads match the current filters.</td></tr>`;
+    return;
+  }
+  els.draftTableBody.innerHTML = state.visibleDrafts.map(renderDraftRow).join("");
+}
+
 function renderLeadRow(lead) {
   const isRecovered = getLeadStatus(lead).startsWith("Recovered") || lead.funnelStatus === "Recovered";
   const disabledSales = state.role === "sales" || isRecovered ? "disabled" : "";
@@ -650,7 +767,7 @@ function renderLeadRow(lead) {
       cell(item.sku || ""),
       cell(item.checkoutPrice ? formatMoney(item.checkoutPrice, lead.currency) : ""),
       cell(item.currentPrice ? formatMoney(item.currentPrice, lead.currency) : ""),
-      cell(item.inventory || ""),
+      cell(item.inventory ?? ""),
       item.productUrl ? `<td><a href="${escapeAttribute(item.productUrl)}" target="_blank" rel="noreferrer">Open</a></td>` : cell(""),
     );
   }
@@ -688,6 +805,57 @@ function renderLeadRow(lead) {
       ${cell(lead.klaviyoEmailSubscribed)}
       ${cell(lead.klaviyoTextSubscribed)}
       ${cell(formatMoney(lead.klaviyoMaximumDiscount, lead.currency))}
+      ${productCells.join("")}
+    </tr>
+  `;
+}
+
+function renderDraftRow(draft) {
+  const productCells = [];
+  for (let i = 0; i < 7; i += 1) {
+    const item = draft.lineItems[i] || {};
+    productCells.push(
+      cell(item.title || ""),
+      cell(item.sku || ""),
+      cell(item.checkoutPrice ? formatMoney(item.checkoutPrice, draft.currency) : ""),
+      cell(item.currentPrice ? formatMoney(item.currentPrice, draft.currency) : ""),
+      cell(item.inventory ?? ""),
+      item.productUrl ? `<td><a href="${escapeAttribute(item.productUrl)}" target="_blank" rel="noreferrer">Open</a></td>` : cell(""),
+    );
+  }
+  return `
+    <tr data-id="${escapeAttribute(draft.id)}" data-market="${escapeAttribute(draft.market)}" class="row-market-${draft.market.toLowerCase()}">
+      <td>
+        <select data-field="leadStatus">
+          ${leadStatuses.map((status) => `<option value="${escapeAttribute(status)}" ${getLeadStatus(draft) === status ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
+        </select>
+      </td>
+      ${cell(draft.market)}
+      <td>
+        <div class="checkout-cell">
+          <span>${escapeHtml(draft.checkout)}</span>
+          <button class="copy-row-button" type="button" data-action="copy-row">Copy row</button>
+        </div>
+      </td>
+      <td>
+        <select data-field="sales" ${state.role === "sales" ? "disabled" : ""}>
+          <option value="">Unassigned</option>
+          ${state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}" ${draft.assignedSales === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+        </select>
+      </td>
+      <td><textarea data-field="notes" placeholder="Leads notes">${escapeHtml(getLeadNotes(draft))}</textarea></td>
+      ${cell(formatCreatedAtWithAge(draft))}
+      ${cell(draft.draftStatus)}
+      ${cell(formatMoney(draft.subtotal, draft.currency))}
+      ${cell(formatMoney(draft.total || draft.subtotal, draft.currency))}
+      ${cell(`${draft.manualShippingTitle || "Manual shipping"} ${formatMoney(draft.manualShippingPrice || 0, draft.currency)}`)}
+      ${cell(draft.name)}
+      ${cell(draft.checkoutPhone)}
+      ${cell(draft.checkoutEmail)}
+      <td><pre>${escapeHtml(draft.address || "")}</pre></td>
+      ${cell(draft.timeZone)}
+      ${cell(Array.isArray(draft.tags) ? draft.tags.join(", ") : draft.tags || "")}
+      ${cell(draft.funnelReason)}
       ${productCells.join("")}
     </tr>
   `;
@@ -748,7 +916,7 @@ async function saveRowFromControl(control) {
       body: JSON.stringify(payload),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Save failed");
+    if (!response.ok) throw new Error(data.detail || data.error || "Save failed");
     Object.assign(lead, {
       assignedSales: data.assignment.sales || "",
       leadStatus: data.assignment.leadStatus || data.assignment.salesStatus || "Valid",
@@ -769,7 +937,7 @@ function getRowField(row, field) {
 }
 
 function findLead(market, id) {
-  return state.leads.find((lead) => lead.market === market && String(lead.id) === String(id));
+  return [...state.leads, ...state.drafts].find((lead) => lead.market === market && String(lead.id) === String(id));
 }
 
 function searchBlob(lead) {
@@ -780,6 +948,10 @@ function searchBlob(lead) {
     lead.checkoutEmail,
     lead.checkoutPhone,
     lead.shippingState,
+    lead.address,
+    lead.draftStatus,
+    lead.funnelReason,
+    Array.isArray(lead.tags) ? lead.tags.join(" ") : lead.tags,
     lead.assignedSales,
     lead.lineItems.map((item) => `${item.title} ${item.sku}`).join(" "),
   ]
@@ -789,8 +961,12 @@ function searchBlob(lead) {
 
 function exportCsv(rows, name) {
   if (!rows.length) return;
-  const headers = getExportHeaders();
-  const lines = [headers.map(csvCell).join(","), ...rows.map((lead) => getExportValues(lead).map(csvCell).join(","))];
+  const isDraftExport = rows.some((row) => row.draftStatus !== undefined);
+  const headers = isDraftExport ? getDraftExportHeaders() : getExportHeaders();
+  const lines = [
+    headers.map(csvCell).join(","),
+    ...rows.map((lead) => (isDraftExport ? getDraftExportValues(lead) : getExportValues(lead)).map(csvCell).join(",")),
+  ];
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -806,6 +982,33 @@ function getExportHeaders() {
     productHeaders.push(`Product ${i}`, `SKU ${i}`, `Checkout Price ${i}`, `Current Price ${i}`, `Inventory ${i}`, `Product URL ${i}`);
   }
   return [...baseColumns, ...productHeaders];
+}
+
+function getDraftExportHeaders() {
+  const productHeaders = [];
+  for (let i = 1; i <= 7; i += 1) {
+    productHeaders.push(`Product ${i}`, `SKU ${i}`, `Draft Price ${i}`, `Current Price ${i}`, `Inventory ${i}`, `Product URL ${i}`);
+  }
+  return [
+    "Lead Status",
+    "Market",
+    "Draft",
+    "Sales",
+    "Leads notes",
+    "Created At Date",
+    "Draft Status",
+    "Subtotal",
+    "Total",
+    "Manual Shipping",
+    "Customer",
+    "Phone",
+    "Email",
+    "Shipping Address",
+    "Time Zone",
+    "Tags",
+    "Opportunity Reason",
+    ...productHeaders,
+  ];
 }
 
 function getExportValues(lead) {
@@ -831,13 +1034,40 @@ function getExportValues(lead) {
   ];
   for (let i = 0; i < 7; i += 1) {
     const item = lead.lineItems[i] || {};
-    values.push(item.title || "", item.sku || "", item.checkoutPrice || "", item.currentPrice || "", item.inventory || "", item.productUrl || "");
+    values.push(item.title || "", item.sku || "", item.checkoutPrice || "", item.currentPrice || "", item.inventory ?? "", item.productUrl || "");
+  }
+  return values;
+}
+
+function getDraftExportValues(draft) {
+  const values = [
+    getLeadStatus(draft),
+    draft.market,
+    draft.checkout,
+    draft.assignedSales,
+    getLeadNotes(draft),
+    formatCreatedAtWithAge(draft),
+    draft.draftStatus,
+    draft.subtotal,
+    draft.total || draft.subtotal,
+    `${draft.manualShippingTitle || "Manual shipping"} ${draft.manualShippingPrice || 0}`,
+    draft.name,
+    draft.checkoutPhone,
+    draft.checkoutEmail,
+    draft.address,
+    draft.timeZone,
+    Array.isArray(draft.tags) ? draft.tags.join(", ") : draft.tags || "",
+    draft.funnelReason,
+  ];
+  for (let i = 0; i < 7; i += 1) {
+    const item = draft.lineItems[i] || {};
+    values.push(item.title || "", item.sku || "", item.checkoutPrice || "", item.currentPrice || "", item.inventory ?? "", item.productUrl || "");
   }
   return values;
 }
 
 function getCopyRowText(lead) {
-  return getExportValues(lead).map(tsvCell).join("\t");
+  return (lead.draftStatus !== undefined ? getDraftExportValues(lead) : getExportValues(lead)).map(tsvCell).join("\t");
 }
 
 function tsvCell(value) {
