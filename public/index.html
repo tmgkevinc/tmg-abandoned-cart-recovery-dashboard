@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TMG Lead Recovery Workspace</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=20260611-1348" />
   </head>
   <body>
     <div id="loginOverlay" class="login-overlay">
@@ -44,6 +44,7 @@
 
       <nav class="tab-nav" aria-label="Dashboard tabs">
         <button class="tab-button active" type="button" data-tab="workspace">Lead Workspace</button>
+        <button class="tab-button" type="button" data-tab="drafts">Draft Recovery</button>
         <button class="tab-button" type="button" data-tab="rules">Rules & Funnel</button>
       </nav>
 
@@ -169,6 +170,58 @@
         </section>
       </section>
 
+      <section id="draftsTab" class="tab-panel">
+        <section id="draftSummary" class="metric-grid" aria-label="Draft recovery summary"></section>
+
+        <section class="controls" aria-label="Draft filters">
+          <label>
+            <span>Market</span>
+            <select id="draftMarketFilter">
+              <option value="ALL">All stores</option>
+              <option value="US">US</option>
+              <option value="CA">CA</option>
+              <option value="AU">AU</option>
+            </select>
+          </label>
+          <label>
+            <span>Lead status</span>
+            <select id="draftLeadStatusFilter">
+              <option value="ALL" selected>All</option>
+              <option value="Valid">Valid</option>
+              <option value="Invalid">Invalid</option>
+              <option value="Recovered Auto">Recovered Auto</option>
+              <option value="Recovered by Sales">Recovered by Sales</option>
+            </select>
+          </label>
+          <label>
+            <span>Assigned sales</span>
+            <select id="draftSalesFilter">
+              <option value="ALL">All sales</option>
+            </select>
+          </label>
+          <label class="search-field">
+            <span>Search</span>
+            <input id="draftSearchInput" type="search" placeholder="Draft, customer, email, phone, SKU" />
+          </label>
+          <button id="exportDraftButton" type="button">Export Draft CSV</button>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Draft Recovery Leads</h2>
+              <p id="draftSubtitle">Draft orders with manual shipping will load from Data Hub.</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="lead-table draft-table">
+              <thead id="draftTableHead"></thead>
+              <tbody id="draftTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
       <section id="rulesTab" class="tab-panel">
         <section class="panel">
           <div class="panel-header">
@@ -182,6 +235,6 @@
       </section>
     </main>
 
-    <script src="/app.js"></script>
+    <script src="/app.js?v=20260611-1348"></script>
   </body>
 </html>

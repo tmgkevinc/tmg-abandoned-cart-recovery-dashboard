@@ -154,6 +154,15 @@ async function loadAllData() {
 async function loadSession() {
   try {
     const response = await fetch("/api/session", { cache: "no-store" });
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      state.authBlocked = true;
+      els.loginOverlay.hidden = false;
+      els.loginForm.querySelector("button").disabled = true;
+      els.loginStatus.textContent = "Cloudflare Access session is not active. Refresh this page and sign in with your email code.";
+      els.currentUserLabel.textContent = "Cloudflare login required";
+      return true;
+    }
     const session = await response.json();
     state.authMode = session.authMode || "manual";
     state.authEmail = session.email || "";
