@@ -1687,6 +1687,14 @@ function nullableNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+async function readJsonBody(req) {
+  try {
+    return await req.json();
+  } catch (error) {
+    return {};
+  }
+}
+
 function text(value) {
   return String(value ?? "").trim();
 }
