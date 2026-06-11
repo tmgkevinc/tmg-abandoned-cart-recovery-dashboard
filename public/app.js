@@ -162,6 +162,18 @@ async function loadHealth() {
   try {
     const response = await fetch("/api/health", { cache: "no-store" });
     const health = await response.json();
+    if (!response.ok) {
+      if (response.status === 403 && health.session) {
+        state.authBlocked = true;
+        els.loginOverlay.hidden = false;
+        els.loginForm.querySelector("button").disabled = true;
+        els.loginStatus.textContent = health.session.reason || health.error || "Cloudflare Access login is required.";
+        els.currentUserLabel.textContent = "Cloudflare login required";
+        return;
+      }
+      els.loginStatus.textContent = health.error || `Dashboard API returned ${response.status}.`;
+      return;
+    }
     state.salesUsers = health.salesUsers || [];
     els.loginUser.innerHTML = [
       `<option value="Admin">Admin</option>`,
@@ -177,8 +189,8 @@ async function loadHealth() {
       ...state.salesUsers.filter((name) => name !== "Non-sales").map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
     ].join("");
     els.loginStatus.textContent = health.dataHubConfigured
-      ? "Data Hub connection is configured on the local server."
-      : "Data Hub environment variables are missing on the local server.";
+      ? "Data Hub connection is configured."
+      : "Data Hub environment variables are missing on the dashboard server.";
   } catch (error) {
     els.loginStatus.textContent = "Local dashboard server is not responding.";
   }
