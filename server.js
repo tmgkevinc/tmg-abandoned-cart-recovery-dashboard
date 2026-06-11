@@ -95,6 +95,10 @@ const server = http.createServer(async (req, res) => {
       return await handleLeads(url, res);
     }
 
+    if (url.pathname === "/api/drafts") {
+      return await handleDrafts(url, res);
+    }
+
     if (url.pathname === "/api/assignments" && req.method === "GET") {
       return sendJson(res, 200, await readAssignments());
     }
@@ -168,6 +172,47 @@ async function handleLeads(url, res) {
   });
 }
 
+async function handleDrafts(url, res) {
+  if (!DATA_HUB_BASE_URL || !DATA_HUB_API_KEY) {
+    return sendJson(res, 400, {
+      error: "Set TMG_DATA_HUB_BASE_URL and TMG_DATA_HUB_API_KEY in .env before loading drafts.",
+    });
+  }
+
+  const markets = String(url.searchParams.get("market") || "US,CA,AU")
+    .split(",")
+    .map((market) => market.trim().toUpperCase())
+    .filter((market) => COUNTRY_META[market]);
+  const limit = Math.max(25, Math.min(Number(url.searchParams.get("limit") || 10000), 50000));
+  const startedAt = new Date();
+
+  const draftResults = await Promise.all(markets.map(async (market) => ({
+    market,
+    records: await fetchDraftOrders(market, limit),
+  })));
+  const productLookup = await buildProductLookupFromCheckouts(draftResults);
+  const assignments = await readAssignments(markets, 10000);
+
+  const drafts = draftResults
+    .flatMap((result) => result.records.map((record) => ({ record, market: result.market })))
+    .map(({ record, market }) => normalizeDraft(record, market, productLookup))
+    .filter((draft) => markets.includes(draft.market))
+    .filter((draft) => !draft.completed && draft.hasManualShipping)
+    .map((draft) => applyAssignment(draft, assignments))
+    .map(applyDraftOpportunityStatus)
+    .sort(sortBySubtotalDesc);
+
+  return sendJson(res, 200, {
+    fetchedAt: startedAt.toISOString(),
+    count: drafts.length,
+    markets,
+    source: "shopify_draft_orders_raw",
+    summary: buildDraftSummary(drafts),
+    salesUsers: SALES_USERS,
+    drafts,
+  });
+}
+
 async function proxyDataHub(res, endpoint) {
   if (!DATA_HUB_BASE_URL || !DATA_HUB_API_KEY) {
     return sendJson(res, 400, { error: "Data Hub environment variables are missing." });
@@ -181,6 +226,42 @@ async function proxyDataHub(res, endpoint) {
     "Content-Type": response.headers.get("content-type") || "application/json; charset=utf-8",
   });
   res.end(text);
+}
+
+async function fetchDraftOrders(country, limit) {
+  const pageSize = Math.min(Math.max(Number(limit || 10000), 1), 10000);
+  const rows = [];
+  let offset = 0;
+  let hasMore = true;
+
+  while (hasMore && rows.length < limit) {
+    const params = new URLSearchParams({
+      table: "shopify_draft_orders_raw",
+      country,
+      limit: String(Math.min(pageSize, limit - rows.length)),
+      offset: String(offset),
+    });
+    const response = await fetch(`${DATA_HUB_BASE_URL}/api/data-hub/records?${params}`, {
+      headers: { "x-api-key": DATA_HUB_API_KEY },
+    });
+    const text = await response.text();
+    let payload = {};
+    try {
+      payload = text ? JSON.parse(text) : {};
+    } catch (error) {
+      throw new Error(`Data Hub returned invalid JSON for shopify_draft_orders_raw/${country}.`);
+    }
+    if (!response.ok) {
+      throw new Error(payload.error || `Data Hub returned ${response.status} for shopify_draft_orders_raw/${country}.`);
+    }
+
+    const pageRows = extractRecords(payload);
+    rows.push(...pageRows);
+    offset += pageRows.length;
+    hasMore = Boolean(payload.hasMore || payload.has_more) && pageRows.length > 0;
+  }
+
+  return rows;
 }
 
 async function fetchDataHubRecords(table, country, limit) {
@@ -481,6 +562,136 @@ function normalizeCheckout(record, market, productLookup, klaviyoLookup) {
   };
 }
 
+function normalizeDraft(record, market, productLookup) {
+  market = text(market || record.country).toUpperCase();
+  const raw = record.raw || record.payload || record.data || record.draft_order || record.draftOrder || record;
+  const draftId = text(raw.admin_graphql_api_id || raw.id || raw.shopify_gid || raw.draft_order_id || raw.draftOrderId || record.shopify_gid || record.legacy_resource_id);
+  const draftName = text(raw.name || record.name || (draftId ? `#${draftId}` : ""));
+  const customer = raw.customer || {};
+  const shipping = raw.shipping_address || raw.shippingAddress || {};
+  const billing = raw.billing_address || raw.billingAddress || {};
+  const lineItems = getLineItems(raw)
+    .filter((item) => !isPpProduct(item))
+    .map((item) => enrichLineItemFromProducts(item, productLookup?.[market]));
+  const completedAt = text(raw.completed_at || raw.completedAt || record.completed_at || record.completedAt);
+  const status = text(raw.status || record.status);
+  const subtotal = number(raw.subtotal_price || raw.subtotalPrice || raw.subtotalPriceSet?.shopMoney?.amount || record.subtotal_price || raw.total_price || record.total_price);
+  const total = number(raw.total_price || raw.totalPrice || raw.totalPriceSet?.shopMoney?.amount || record.total_price || subtotal);
+  const totalTax = number(raw.total_tax || raw.totalTax || raw.totalTaxSet?.shopMoney?.amount || record.total_tax);
+  const shippingLine = getDraftShippingLine(raw, subtotal, total, totalTax);
+  const createdAt = text(raw.created_at || raw.createdAt || record.created_at || record.createdAt);
+  const email = text(raw.email || customer.email || record.customer_email);
+  const phone = text(
+    raw.phone ||
+      shipping.phone ||
+      billing.phone ||
+      customer.phone ||
+      customer.default_address?.phone ||
+      record.phone ||
+      record.shipping_phone,
+  );
+  const shippingName = text(raw.shipping_name || shipping.name || [shipping.first_name, shipping.last_name].filter(Boolean).join(" "));
+  const billingName = text(billing.name || [billing.first_name, billing.last_name].filter(Boolean).join(" "));
+  const customerName = text(raw.customer_name || shippingName || billingName || [customer.first_name, customer.last_name].filter(Boolean).join(" "));
+  const state = normalizeState(shipping.province_code || shipping.province || shipping.state || billing.province_code || billing.province || "");
+  const currency = text(raw.currency || raw.currency_code || record.currency_code || COUNTRY_META[market]?.currency || "USD");
+  const tags = normalizeTags(raw.tags || record.tags);
+  const ageHours = createdAt ? Math.max(0, (Date.now() - new Date(createdAt).getTime()) / 36e5) : null;
+
+  return {
+    id: draftId || draftName,
+    market,
+    checkout: draftName,
+    draftStatus: status || "open",
+    completed: Boolean(completedAt || status.toLowerCase() === "completed"),
+    hasManualShipping: hasManualShippingLine(shippingLine),
+    manualShippingTitle: text(shippingLine.title || shippingLine.name || shippingLine.code || "Manual shipping"),
+    manualShippingPrice: number(shippingLine.price || shippingLine.price_set?.shop_money?.amount || shippingLine.priceSet?.shopMoney?.amount),
+    grade: buildGrade(total || subtotal, ageHours, "", ""),
+    name: customerName || shippingName || billingName || "No name",
+    shippingName,
+    billingName,
+    subtotal,
+    total,
+    currency,
+    checkoutPhone: phone,
+    checkoutEmail: email,
+    createdAt,
+    createdAtVancouver: formatVancouverDateTime(createdAt),
+    shippingState: state,
+    timeZone: getTimeZoneForState(state, market),
+    checkoutDiscountCode: getDiscountCode(raw),
+    checkoutDiscountAmount: number(raw.total_discounts || raw.applied_discount?.amount || record.total_discounts),
+    klaviyoEmailSubscribed: "",
+    klaviyoTextSubscribed: "",
+    klaviyoMaximumDiscount: calculateKlaviyoMaxDiscount(total || subtotal),
+    address: formatAddress(shipping || billing),
+    lineItems,
+    productKey: lineItems.map((item) => normalizeComparable(item.sku || item.title)).sort().join("|"),
+    ageHours,
+    source: text(raw.source_name || raw.sourceName || record.source_name || "draft_order"),
+    tags,
+    recovered: false,
+    recoveredOrderNumber: "",
+    recoveredBySales: false,
+    recoveredBySalesName: "",
+    recoveredOrderTags: [],
+    rawUpdatedAt: text(raw.updated_at || raw.updatedAt || record.updated_at || record.updatedAt),
+    leadStatus: "",
+    salesStatus: "",
+    funnelStatus: "",
+    funnelReason: "",
+  };
+}
+
+function getDraftShippingLine(raw, subtotal = 0, total = 0, totalTax = 0) {
+  const line = raw.shipping_line || raw.shippingLine || raw.applied_shipping_rate || raw.appliedShippingRate;
+  if (line && typeof line === "object") return line;
+  if (Array.isArray(raw.shipping_lines) && raw.shipping_lines.length) return raw.shipping_lines[0];
+  if (Array.isArray(raw.shippingLines) && raw.shippingLines.length) return raw.shippingLines[0];
+  const inferred = Number(total || 0) - Number(subtotal || 0) - Number(totalTax || 0);
+  if (inferred > 0.009) return { title: "Inferred manual shipping/fee", price: inferred };
+  return {};
+}
+
+function hasManualShippingLine(line) {
+  if (!line || typeof line !== "object") return false;
+  const label = text(line.title || line.name || line.code || line.custom || line.handle);
+  const price = number(line.price || line.price_set?.shop_money?.amount || line.priceSet?.shopMoney?.amount);
+  return Boolean(label) || price > 0;
+}
+
+function applyDraftOpportunityStatus(draft) {
+  const hasContact = Boolean(draft.checkoutPhone || draft.checkoutEmail);
+  const hasProduct = draft.lineItems.length > 0;
+  const hasInventory = draft.lineItems.some((item) => itemHasInventory(item));
+  const rawSavedLeadStatus = text(draft.leadStatus || draft.salesStatus);
+  const savedLeadStatus = ["Valid", "Invalid", "Recovered Auto", "Recovered by Sales"].includes(rawSavedLeadStatus)
+    ? rawSavedLeadStatus
+    : "";
+  const blockedReasons = [];
+  if (!hasContact) blockedReasons.push("No phone or email");
+  if (!hasProduct) blockedReasons.push("No product line items");
+  if (!hasInventory) blockedReasons.push("No product with known inventory");
+
+  const leadStatus = savedLeadStatus || (blockedReasons.length ? "Invalid" : "Valid");
+  return {
+    ...draft,
+    leadStatus,
+    salesStatus: leadStatus,
+    funnelStatus: blockedReasons.length ? "Needs Review" : "Ready",
+    funnelReason: blockedReasons.length ? blockedReasons.join("; ") : "Open draft with manual shipping",
+  };
+}
+
+function itemHasInventory(item) {
+  const value = item.inventory;
+  if (typeof value === "number") return value > 0;
+  const normalized = text(value).toLowerCase();
+  if (!normalized) return true;
+  return normalized !== "0" && normalized !== "not available" && normalized !== "false";
+}
+
 function getLineItems(raw) {
   const direct = raw.line_items_json || raw.line_items || raw.lineItems;
   if (Array.isArray(direct)) return direct.map(normalizeLineItem);
@@ -592,8 +803,8 @@ function enrichLineItemFromProducts(item, productLookup) {
   return {
     ...item,
     title: item.title || product.title,
-    currentPrice: product.currentPrice || item.currentPrice,
-    inventory: product.inventory || item.inventory,
+    currentPrice: product.currentPrice ?? item.currentPrice,
+    inventory: product.inventory ?? item.inventory,
     productUrl: product.productUrl || item.productUrl,
   };
 }
@@ -800,6 +1011,29 @@ function buildSummary(leads) {
     }
   }
   return { byMarket, bySales, latestCreatedAt };
+}
+
+function buildDraftSummary(drafts) {
+  const byMarket = {};
+  const latestCreatedAt = {};
+  for (const market of Object.keys(COUNTRY_META)) {
+    byMarket[market] = { total: 0, valid: 0, assigned: 0, amount: 0, validAmount: 0, manualShipping: 0 };
+  }
+  for (const draft of drafts) {
+    byMarket[draft.market] ||= { total: 0, valid: 0, assigned: 0, amount: 0, validAmount: 0, manualShipping: 0 };
+    byMarket[draft.market].total += 1;
+    byMarket[draft.market].amount += draft.total || draft.subtotal || 0;
+    if (draft.hasManualShipping) byMarket[draft.market].manualShipping += 1;
+    if (draft.leadStatus === "Valid") {
+      byMarket[draft.market].valid += 1;
+      byMarket[draft.market].validAmount += draft.total || draft.subtotal || 0;
+    }
+    if (draft.assignedSales && draft.leadStatus === "Valid") byMarket[draft.market].assigned += 1;
+    if (!latestCreatedAt[draft.market] || new Date(draft.createdAt) > new Date(latestCreatedAt[draft.market])) {
+      latestCreatedAt[draft.market] = draft.createdAt;
+    }
+  }
+  return { byMarket, latestCreatedAt };
 }
 
 function incrementAgeBucket(buckets, ageHours) {
@@ -1041,7 +1275,7 @@ function writeAssignments(assignments) {
 }
 
 function assignmentKey(lead) {
-  return `${lead.market}:${lead.id}`;
+  return `${lead.market}:${normalizeCheckoutAssignmentId(lead.id)}`;
 }
 
 function normalizeFunnelStatus(value) {
@@ -1051,6 +1285,10 @@ function normalizeFunnelStatus(value) {
 
 function sortByGradeThenDate(a, b) {
   return gradeRank(a.grade) - gradeRank(b.grade) || new Date(b.createdAt) - new Date(a.createdAt);
+}
+
+function sortBySubtotalDesc(a, b) {
+  return Number(b.total || b.subtotal || 0) - Number(a.total || a.subtotal || 0) || sortByGradeThenDate(a, b);
 }
 
 function gradeRank(grade) {
