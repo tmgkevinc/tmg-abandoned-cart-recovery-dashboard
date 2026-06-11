@@ -12,9 +12,7 @@
   "engines": {
     "node": ">=20"
   },
-  "dependencies": {
-    "@cloudflare/containers": "latest"
-  },
+  "dependencies": {},
   "devDependencies": {
     "wrangler": "latest"
   }

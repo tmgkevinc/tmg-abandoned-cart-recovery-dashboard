@@ -1,24 +1,23 @@
 # Cloudflare Deployment
 
-This project is prepared for Cloudflare Containers. The existing Node dashboard runs inside the Docker container, and a small Worker in `src/index.js` routes requests to that container.
+This project is prepared for a regular Cloudflare Worker with static assets. The Worker in `src/index.js` serves the dashboard files and handles the server-side API proxy/writeback routes.
 
-## Why Containers
+## Why Worker
 
-The dashboard is a Node server, not a static-only site. It needs server-side routes to:
+The dashboard is not a static-only site. It needs server-side routes to:
 
 - keep the Data Hub API key out of the browser
 - read Cloudflare Access identity headers
 - write assignment/status/notes back to Data Hub
 
-Cloudflare Pages static hosting alone is not enough for this version.
+Static hosting alone is not enough for this version.
 
 ## One-Time Requirements
 
-Cloudflare Containers requires:
+Cloudflare deployment requires:
 
-- Workers Paid plan with Containers enabled
-- Docker running locally when deploying with Wrangler
 - Wrangler login or `CLOUDFLARE_API_TOKEN`
+- Cloudflare Worker edit/deploy permission
 
 ## Required Secret
 
@@ -50,7 +49,7 @@ npm install
 npx wrangler deploy
 ```
 
-During deploy, Wrangler builds the Docker image, pushes it to Cloudflare's container registry, and deploys the Worker that routes traffic to the container.
+During deploy, Wrangler uploads the Worker and the files in `public/` as static assets.
 
 ## Add Cloudflare Access
 
@@ -90,4 +89,3 @@ Then test persistence:
 3. Confirm the value remains.
 4. Open in another browser/login.
 5. Confirm the value remains.
-
