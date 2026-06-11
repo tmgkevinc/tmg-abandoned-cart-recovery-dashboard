@@ -109,13 +109,14 @@ async function handleLeads(url) {
     .split(",")
     .map((market) => market.trim().toUpperCase())
     .filter((market) => COUNTRY_META[market]);
-  const limit = Math.max(25, Math.min(Number(url.searchParams.get("limit") || 5000), 10000));
+  const limit = Math.max(25, Math.min(Number(url.searchParams.get("limit") || 500), 10000));
+  const fetchAllPages = url.searchParams.get("all") === "1";
   const includeKlaviyo = url.searchParams.get("klaviyo") === "1";
   const useEnriched = url.searchParams.get("source") !== "raw";
 
   const startedAt = new Date();
   const checkoutResults = await Promise.all(markets.map(async (market) => {
-    const records = await fetchAbandonedCartLeads(market, limit, useEnriched ? "enriched" : "raw");
+    const records = await fetchAbandonedCartLeads(market, limit, useEnriched ? "enriched" : "raw", fetchAllPages);
     return {
       market,
       records,
@@ -263,7 +264,7 @@ async function fetchDraftOrders(country, limit) {
   return rows;
 }
 
-async function fetchAbandonedCartLeads(country, limit, source = "enriched") {
+async function fetchAbandonedCartLeads(country, limit, source = "enriched", fetchAllPages = false) {
   const pageSize = Math.min(Math.max(Number(limit || 5000), 1), 5000);
   const rows = [];
   let offset = 0;
@@ -293,7 +294,7 @@ async function fetchAbandonedCartLeads(country, limit, source = "enriched") {
     const pageRows = extractRecords(payload);
     rows.push(...pageRows);
     offset += pageRows.length;
-    hasMore = Boolean(payload.hasMore || payload.has_more) && pageRows.length > 0;
+    hasMore = fetchAllPages && Boolean(payload.hasMore || payload.has_more) && pageRows.length > 0;
   }
 
   return rows;
@@ -573,6 +574,7 @@ function normalizeDraft(record, market, productLookup) {
   const currency = text(raw.currency || raw.currency_code || record.currency_code || COUNTRY_META[market]?.currency || "USD");
   const tags = normalizeTags(raw.tags || record.tags);
   const ageHours = createdAt ? Math.max(0, (Date.now() - new Date(createdAt).getTime()) / 36e5) : null;
+  const marginSummary = calculateMarginSummary(lineItems, subtotal);
 
   return {
     id: draftId || draftName,
@@ -589,6 +591,9 @@ function normalizeDraft(record, market, productLookup) {
     billingName,
     subtotal,
     total,
+    totalCost: marginSummary.totalCost,
+    margin: marginSummary.margin,
+    marginPercent: marginSummary.marginPercent,
     currency,
     checkoutPhone: phone,
     checkoutEmail: email,
@@ -618,6 +623,16 @@ function normalizeDraft(record, market, productLookup) {
     funnelStatus: "",
     funnelReason: "",
   };
+}
+
+function calculateMarginSummary(lineItems, subtotal) {
+  const costs = lineItems.map((item) => item.totalCost).filter((value) => value !== null && value !== undefined);
+  if (!costs.length) return { totalCost: null, margin: null, marginPercent: null };
+  const totalCost = costs.reduce((sum, value) => sum + Number(value || 0), 0);
+  const revenue = Number(subtotal || 0);
+  const margin = revenue - totalCost;
+  const marginPercent = revenue ? margin / revenue : null;
+  return { totalCost, margin, marginPercent };
 }
 
 function getDraftShippingLine(raw, subtotal = 0, total = 0, totalTax = 0) {
@@ -688,9 +703,20 @@ function normalizeLineItem(item) {
       item.discountedUnitPriceSet?.shopMoney?.amount,
   );
   const currentPrice = number(item.current_price || item.currentPrice || item.variant?.price || item.product?.price);
+  const cost = nullableNumber(item.cost || item.rate_sheet_cost || item.landed_cost || item.unit_cost || item.product_cost);
   const inventory = number(item.inventory_quantity || item.inventoryQuantity || item.variant?.inventory_quantity || item.available);
   const productUrl = text(item.product_url || item.productUrl || item.url || "");
-  return { title, sku, quantity, checkoutPrice, currentPrice, inventory, productUrl };
+  return addMarginFields({ title, sku, quantity, checkoutPrice, currentPrice, cost, inventory, productUrl });
+}
+
+function addMarginFields(item) {
+  const cost = item.cost;
+  const quantity = Number(item.quantity || 1);
+  const revenue = Number(item.checkoutPrice || 0) * quantity;
+  const totalCost = cost === null || cost === undefined ? null : Number(cost || 0) * quantity;
+  const margin = totalCost === null ? null : revenue - totalCost;
+  const marginPercent = margin === null || !revenue ? null : margin / revenue;
+  return { ...item, totalCost, margin, marginPercent };
 }
 
 function buildProductLookupByMarket(results) {
@@ -710,6 +736,7 @@ function buildProductLookupFromProductLookupRecords(records, market) {
     lookup.set(sku, {
       title: text(record.product_title || record.title),
       currentPrice: number(record.current_price || record.price),
+      cost: nullableNumber(record.cost || record.rate_sheet_cost || record.landed_cost || record.unit_cost || record.product_cost),
       inventory: getLookupInventory(record),
       productUrl: text(record.product_url) || getProductUrlFromHandle(record.handle, market),
     });
@@ -749,6 +776,7 @@ function buildProductLookup(records, market) {
       lookup.set(sku, {
         title,
         currentPrice: number(variant.price || variant.compareAtPrice || variant.compare_at_price),
+        cost: nullableNumber(variant.cost || variant.unit_cost || variant.inventoryItem?.unitCost?.amount),
         inventory: getVariantInventory(variant),
         productUrl,
       });
@@ -776,13 +804,14 @@ function getProductVariants(raw) {
 function enrichLineItemFromProducts(item, productLookup) {
   const product = productLookup?.get(normalizeSku(item.sku));
   if (!product) return item;
-  return {
+  return addMarginFields({
     ...item,
     title: item.title || product.title,
     currentPrice: product.currentPrice ?? item.currentPrice,
+    cost: product.cost ?? item.cost,
     inventory: product.inventory ?? item.inventory,
     productUrl: product.productUrl || item.productUrl,
-  };
+  });
 }
 
 function getVariantInventory(variant) {
@@ -1650,6 +1679,12 @@ function splitConfigList(value) {
 function number(value) {
   const parsed = Number(String(value ?? "").replace(/[$,]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function nullableNumber(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = Number(String(value).replace(/[$,]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function text(value) {

@@ -272,8 +272,11 @@ async function loadLeads() {
   els.refreshButton.disabled = true;
   els.refreshButton.textContent = "Loading...";
   try {
-    const response = await fetch("/api/leads?market=US,CA,AU&limit=1000", { cache: "no-store" });
-    const data = await response.json();
+    const response = await fetch("/api/leads?market=US,CA,AU&limit=300", { cache: "no-store" });
+    const contentType = response.headers.get("content-type") || "";
+    const data = contentType.includes("application/json")
+      ? await response.json()
+      : { error: `Dashboard API returned ${response.status} ${response.statusText || ""} instead of JSON.` };
     if (!response.ok) throw new Error(data.error || "Could not load leads.");
     state.salesUsers = data.salesUsers || state.salesUsers;
     state.leads = data.leads || [];
@@ -714,7 +717,7 @@ function renderTableHeads() {
 
   const draftProductColumns = [];
   for (let i = 1; i <= 7; i += 1) {
-    draftProductColumns.push(`Product ${i}`, `SKU ${i}`, `Draft Price ${i}`, `Current Price ${i}`, `Inventory ${i}`, `Product URL ${i}`);
+    draftProductColumns.push(`Product ${i}`, `SKU ${i}`, `Draft Price ${i}`, `Current Price ${i}`, `Cost ${i}`, `Margin ${i}`, `Margin % ${i}`, `Inventory ${i}`, `Product URL ${i}`);
   }
   const draftColumns = [
     "Lead Status",
@@ -726,6 +729,9 @@ function renderTableHeads() {
     "Draft Status",
     "Subtotal",
     "Total",
+    "Estimated Cost",
+    "Margin",
+    "Margin %",
     "Manual Shipping",
     "Customer",
     "Phone",
@@ -828,6 +834,9 @@ function renderDraftRow(draft) {
       cell(item.sku || ""),
       cell(item.checkoutPrice ? formatMoney(item.checkoutPrice, draft.currency) : ""),
       cell(item.currentPrice ? formatMoney(item.currentPrice, draft.currency) : ""),
+      cell(formatOptionalMoney(item.cost, draft.currency)),
+      cell(formatOptionalMoney(item.margin, draft.currency)),
+      cell(formatOptionalPercent(item.marginPercent)),
       cell(item.inventory ?? ""),
       item.productUrl ? `<td><a href="${escapeAttribute(item.productUrl)}" target="_blank" rel="noreferrer">Open</a></td>` : cell(""),
     );
@@ -857,6 +866,9 @@ function renderDraftRow(draft) {
       ${cell(draft.draftStatus)}
       ${cell(formatMoney(draft.subtotal, draft.currency))}
       ${cell(formatMoney(draft.total || draft.subtotal, draft.currency))}
+      ${cell(formatOptionalMoney(draft.totalCost, draft.currency))}
+      ${cell(formatOptionalMoney(draft.margin, draft.currency))}
+      ${cell(formatOptionalPercent(draft.marginPercent))}
       ${cell(`${draft.manualShippingTitle || "Manual shipping"} ${formatMoney(draft.manualShippingPrice || 0, draft.currency)}`)}
       ${cell(draft.name)}
       ${cell(draft.checkoutPhone)}
@@ -996,7 +1008,7 @@ function getExportHeaders() {
 function getDraftExportHeaders() {
   const productHeaders = [];
   for (let i = 1; i <= 7; i += 1) {
-    productHeaders.push(`Product ${i}`, `SKU ${i}`, `Draft Price ${i}`, `Current Price ${i}`, `Inventory ${i}`, `Product URL ${i}`);
+    productHeaders.push(`Product ${i}`, `SKU ${i}`, `Draft Price ${i}`, `Current Price ${i}`, `Cost ${i}`, `Margin ${i}`, `Margin % ${i}`, `Inventory ${i}`, `Product URL ${i}`);
   }
   return [
     "Lead Status",
@@ -1008,6 +1020,9 @@ function getDraftExportHeaders() {
     "Draft Status",
     "Subtotal",
     "Total",
+    "Estimated Cost",
+    "Margin",
+    "Margin %",
     "Manual Shipping",
     "Customer",
     "Phone",
@@ -1059,6 +1074,9 @@ function getDraftExportValues(draft) {
     draft.draftStatus,
     draft.subtotal,
     draft.total || draft.subtotal,
+    draft.totalCost ?? "",
+    draft.margin ?? "",
+    draft.marginPercent === null || draft.marginPercent === undefined ? "" : `${Math.round(draft.marginPercent * 1000) / 10}%`,
     `${draft.manualShippingTitle || "Manual shipping"} ${draft.manualShippingPrice || 0}`,
     draft.name,
     draft.checkoutPhone,
@@ -1070,7 +1088,17 @@ function getDraftExportValues(draft) {
   ];
   for (let i = 0; i < 7; i += 1) {
     const item = draft.lineItems[i] || {};
-    values.push(item.title || "", item.sku || "", item.checkoutPrice || "", item.currentPrice || "", item.inventory ?? "", item.productUrl || "");
+    values.push(
+      item.title || "",
+      item.sku || "",
+      item.checkoutPrice || "",
+      item.currentPrice || "",
+      item.cost ?? "",
+      item.margin ?? "",
+      item.marginPercent === null || item.marginPercent === undefined ? "" : `${Math.round(item.marginPercent * 1000) / 10}%`,
+      item.inventory ?? "",
+      item.productUrl || "",
+    );
   }
   return values;
 }
@@ -1173,6 +1201,16 @@ function formatMoney(value, currency) {
     currency: currency || "USD",
     maximumFractionDigits: 0,
   }).format(Number(value || 0));
+}
+
+function formatOptionalMoney(value, currency) {
+  if (value === null || value === undefined || value === "") return "";
+  return formatMoney(value, currency);
+}
+
+function formatOptionalPercent(value) {
+  if (value === null || value === undefined || value === "") return "";
+  return `${Math.round(Number(value) * 1000) / 10}%`;
 }
 
 function formatMarketAmounts(amountsByMarket) {
