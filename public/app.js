@@ -699,7 +699,7 @@ function getRecoveredBySalesSummary(leads) {
 
 function getRecoveredBySalesOwner(lead) {
   if (getLeadStatus(lead) !== "Recovered by Sales") return "";
-  const directName = findSalesName(lead.recoveredBySalesName || lead.assignedSales || "");
+  const directName = findSalesName(lead.recoveredBy || lead.recoveredBySalesName || lead.assignedSales || "");
   if (directName) return directName;
   const tagText = Array.isArray(lead.recoveredOrderTags) ? lead.recoveredOrderTags.join(" ") : "";
   return findSalesName(tagText);

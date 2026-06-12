@@ -553,6 +553,7 @@ function normalizeCheckout(record, market, productLookup, klaviyoLookup) {
     source: text(raw.source_name || raw.sourceName || raw.source || ""),
     recovered,
     recoveredOrderNumber: text(raw.recovered_order_name || raw.order?.name || raw.order_name || raw.orderName || raw.order_id || raw.orderId),
+    recoveredOrderCreatedAt: text(raw.recovered_order_created_at || raw.recoveredOrderCreatedAt || raw.completed_at || raw.completedAt || raw.order?.created_at || raw.order?.createdAt),
     recoveredBySales,
     recoveredBySalesName,
     relatedSales: getRelatedSalesName(raw),
@@ -904,6 +905,7 @@ function applyFunnelStatus(leads) {
     let reason = lead.funnelReason || status;
     const savedLeadStatus = normalizeLeadStatus(lead.leadStatus || lead.salesStatus);
     const recoveredFromData = lead.recovered || status === "Recovered";
+    const recoveredAfterAssignment = isRecoveredAfterAssignment(lead);
     const canRunAutoGate = !lead.funnelStatus || lead.funnelStatus === "Ready" || lead.funnelStatus === "Older Than 30 Days";
     const hasProduct = lead.lineItems.length > 0;
     const hasInventory = lead.lineItems.some((item) => itemHasInventory(item));
@@ -930,7 +932,7 @@ function applyFunnelStatus(leads) {
     const validFunnelStatus = status === "Ready" || status === "Older Than 30 Days";
     const leadStatus =
       recoveredFromData
-        ? lead.recoveredBySales
+        ? recoveredAfterAssignment
           ? "Recovered by Sales"
           : "Recovered Auto"
         : savedLeadStatus === "Recovered Auto" || savedLeadStatus === "Recovered by Sales"
@@ -940,7 +942,7 @@ function applyFunnelStatus(leads) {
             : "Invalid";
     return {
       ...lead,
-      recoveredBy: getRecoveredByLabel(lead, recoveredFromData),
+      recoveredBy: getRecoveredByLabel(lead, recoveredFromData, recoveredAfterAssignment),
       assignedSales: recoveredFromData ? "" : lead.assignedSales,
       assignedAt: recoveredFromData ? "" : lead.assignedAt,
       funnelStatus: status,
@@ -951,17 +953,27 @@ function applyFunnelStatus(leads) {
   });
 }
 
-function getRecoveredByLabel(lead, recoveredFromData) {
+function isRecoveredAfterAssignment(lead) {
+  const assignedSales = text(lead.assignedSales);
+  if (!assignedSales) return false;
+  const assignedAt = new Date(lead.assignedAt || "").getTime();
+  const recoveredAt = new Date(lead.recoveredOrderCreatedAt || "").getTime();
+  if (!Number.isFinite(assignedAt) || !Number.isFinite(recoveredAt)) return false;
+  return recoveredAt >= assignedAt;
+}
+
+function getRecoveredByLabel(lead, recoveredFromData, recoveredAfterAssignment) {
   if (!recoveredFromData) return "";
-  if (lead.recoveredBySalesName) return lead.recoveredBySalesName;
-  if (lead.assignedSales) return lead.assignedSales;
-  return lead.recoveredBySales ? "Sales" : "Auto";
+  if (!recoveredAfterAssignment) return "Auto";
+  return lead.assignedSales || lead.recoveredBySalesName || "Sales";
 }
 
 function buildRecoveredReason(lead) {
   const order = lead.recoveredOrderNumber ? `Recovered order ${lead.recoveredOrderNumber}` : "Checkout already recovered";
-  if (lead.recoveredBySalesName) return `${order}; sales tag: ${lead.recoveredBySalesName}`;
-  if (lead.recoveredBySales) return `${order}; sales tag found`;
+  if (isRecoveredAfterAssignment(lead)) return `${order}; recovered after assignment to ${lead.assignedSales}`;
+  if (lead.assignedAt && lead.recoveredOrderCreatedAt) return `${order}; recovered before assignment`;
+  if (lead.recoveredBySalesName) return `${order}; sales tag: ${lead.recoveredBySalesName}; no post-assignment recovery`;
+  if (lead.recoveredBySales) return `${order}; sales tag found; no post-assignment recovery`;
   return `${order}; no sales tag`;
 }
 
