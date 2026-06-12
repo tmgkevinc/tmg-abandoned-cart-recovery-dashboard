@@ -1392,9 +1392,19 @@ function buildAssignmentMap(rows) {
   for (const row of rows) {
     const assignment = normalizeAssignmentRecord(row);
     if (!assignment) continue;
-    assignments[`${assignment.market}:${assignment.id}`] = assignment;
+    const key = `${assignment.market}:${assignment.id}`;
+    const previous = assignments[key];
+    if (!previous || getAssignmentSortTime(assignment) >= getAssignmentSortTime(previous)) {
+      assignments[key] = assignment;
+    }
   }
   return assignments;
+}
+
+function getAssignmentSortTime(assignment) {
+  const value = assignment.assignedAt || assignment.updatedAt || assignment.dataHubSyncedAt;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function normalizeAssignmentRecord(row) {
