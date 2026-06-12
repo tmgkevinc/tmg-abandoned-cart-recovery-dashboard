@@ -540,7 +540,7 @@ function normalizeCheckout(record, market, productLookup, klaviyoLookup) {
     createdAt,
     createdAtVancouver: formatVancouverDateTime(createdAt),
     shippingState: state,
-    timeZone: normalizeTimeZone(raw.time_zone) || getTimeZoneForState(state, market),
+    timeZone: getTimeZoneForState(state, market) || normalizeTimeZone(raw.time_zone),
     checkoutDiscountCode: getDiscountCode(raw),
     checkoutDiscountAmount: number(raw.discount_amount || raw.total_discounts || raw.totalDiscounts || record.discount_amount),
     klaviyoEmailSubscribed,
