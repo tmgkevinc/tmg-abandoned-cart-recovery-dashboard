@@ -465,7 +465,7 @@ function renderRulesFunnel() {
       label: "Recovered gate",
       count: counts.recovered,
       rule: "Current matching is done upstream by Data Hub, not inside this page. This dashboard treats a checkout as recovered when the enriched abandoned-cart record includes completed/order/recovered signals such as completed_at, order_id, or is_recovered. If Data Hub provides a recovered order number, it is shown in Leads notes.",
-      outcome: "Recovered with no sales tag becomes Recovered Auto. Recovered with a sales tag or recovered_by_sales flag becomes Recovered by Sales. Recovered leads are reset to Unassigned so they do not conflict with active sales assignment.",
+      outcome: "If a lead was assigned before the recovered order was created, it becomes Recovered by Sales for that assigned sales rep. Otherwise it is Recovered Auto, unless Data Hub provides a sales-tag owner.",
     },
     {
       label: "Inventory gate",
@@ -501,8 +501,8 @@ function renderRulesFunnel() {
   const statusRules = [
     ["Valid", "Effective lead for sales follow-up."],
     ["Invalid", "Lead does not qualify, or sales manually marked it as not useful."],
-    ["Recovered Auto", "Shopify/Data Hub shows a recovered order with no sales tag."],
-    ["Recovered by Sales", "Shopify/Data Hub shows a recovered order with a sales tag, or sales manually confirms recovery."],
+    ["Recovered Auto", "Shopify/Data Hub shows a recovered order, but there was no earlier sales assignment tied to that checkout."],
+    ["Recovered by Sales", "The checkout was assigned before the recovered order was created, or Data Hub provides a sales-tag owner."],
   ];
 
   els.rulesFunnel.innerHTML = `
@@ -1201,10 +1201,11 @@ function getRecoveredReasonNote(lead) {
   const status = getLeadStatus(lead);
   const parts = [order ? `Recovered order: ${order}` : "Recovered order: missing from Data Hub"];
   if (status === "Recovered by Sales") {
-    parts.push(lead.recoveredBySalesName ? `Sales tag: ${lead.recoveredBySalesName}` : "Sales tag found");
+    const owner = lead.recoveredBy || lead.assignedSales || lead.recoveredBySalesName || "Sales";
+    parts.push(`Recovered by: ${owner}`);
   }
   if (status === "Recovered Auto") {
-    parts.push("No sales tag");
+    parts.push("No earlier sales assignment");
   }
   return parts.join("; ");
 }
