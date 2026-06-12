@@ -51,12 +51,10 @@ const markets = ["US", "CA", "AU"];
 
 const baseColumns = [
   "Lead Status",
-  "Recovered By",
   "Market",
   "Grade",
   "Checkout",
   "Sales",
-  "Related Sales",
   "Leads notes",
   "Created At Date",
   "Subtotal",
@@ -71,6 +69,7 @@ const baseColumns = [
   "Klaviyo Text Subscribed",
   "Klaviyo Maximum Discount",
 ];
+const trailingLeadColumns = ["Related Sales", "Recovered By"];
 
 let state = {
   user: null,
@@ -720,7 +719,7 @@ function renderTableHeads() {
   for (let i = 1; i <= 7; i += 1) {
     productColumns.push(`Product ${i}`, `SKU ${i}`, `Checkout Price ${i}`, `Current Price ${i}`, `Inventory ${i}`, `Product URL ${i}`);
   }
-  const columns = [...baseColumns, ...productColumns];
+  const columns = [...baseColumns, ...productColumns, ...trailingLeadColumns];
   const head = `<tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>`;
   els.leadTableHead.innerHTML = head;
   els.salesTableHead.innerHTML = head;
@@ -803,7 +802,6 @@ function renderLeadRow(lead) {
           ${leadStatuses.map((status) => `<option value="${escapeAttribute(status)}" ${getLeadStatus(lead) === status ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
         </select>
       </td>
-      ${cell(getRecoveredByValue(lead))}
       ${cell(lead.market)}
       <td><span class="grade">${escapeHtml(lead.grade)}</span></td>
       <td>
@@ -818,7 +816,6 @@ function renderLeadRow(lead) {
           ${state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}" ${lead.assignedSales === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
         </select>
       </td>
-      ${cell(lead.relatedSales)}
       <td><textarea data-field="notes" placeholder="Leads notes">${escapeHtml(getLeadNotes(lead))}</textarea></td>
       ${cell(formatCreatedAtWithAge(lead))}
       ${cell(formatMoney(lead.subtotal, lead.currency))}
@@ -833,6 +830,8 @@ function renderLeadRow(lead) {
       ${cell(lead.klaviyoTextSubscribed)}
       ${cell(formatMoney(lead.klaviyoMaximumDiscount, lead.currency))}
       ${productCells.join("")}
+      ${cell(lead.relatedSales)}
+      ${cell(getRecoveredByValue(lead))}
     </tr>
   `;
 }
@@ -1015,7 +1014,7 @@ function getExportHeaders() {
   for (let i = 1; i <= 7; i += 1) {
     productHeaders.push(`Product ${i}`, `SKU ${i}`, `Checkout Price ${i}`, `Current Price ${i}`, `Inventory ${i}`, `Product URL ${i}`);
   }
-  return [...baseColumns, ...productHeaders];
+  return [...baseColumns, ...productHeaders, ...trailingLeadColumns];
 }
 
 function getDraftExportHeaders() {
@@ -1051,12 +1050,10 @@ function getDraftExportHeaders() {
 function getExportValues(lead) {
   const values = [
     getLeadStatus(lead),
-    getRecoveredByValue(lead),
     lead.market,
     lead.grade,
     lead.checkout,
     lead.assignedSales,
-    lead.relatedSales,
     getLeadNotes(lead),
     formatCreatedAtWithAge(lead),
     lead.subtotal,
@@ -1075,6 +1072,7 @@ function getExportValues(lead) {
     const item = lead.lineItems[i] || {};
     values.push(item.title || "", item.sku || "", item.checkoutPrice || "", item.currentPrice || "", item.inventory ?? "", item.productUrl || "");
   }
+  values.push(lead.relatedSales, getRecoveredByValue(lead));
   return values;
 }
 
