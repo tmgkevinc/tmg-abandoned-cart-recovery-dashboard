@@ -1004,6 +1004,33 @@ function getRecoveredBySalesName(raw, recoveredOrderTags) {
 }
 
 function getRelatedSalesName(raw) {
+  const orderCandidate = getEarliestRelatedSalesOrderCandidate(raw);
+  if (orderCandidate) {
+    const candidateSales = getCandidateSalesName(orderCandidate);
+    if (candidateSales) return candidateSales;
+  }
+
+  const sourceType = normalizeComparable(
+    raw.related_sales_source_type ||
+      raw.relatedSalesSourceType ||
+      raw.related_sales_source ||
+      raw.relatedSalesSource ||
+      raw.customer_sales_source_type ||
+      raw.customerSalesSourceType,
+  );
+  const sourceOrder = text(
+    raw.related_sales_source_order ||
+      raw.relatedSalesSourceOrder ||
+      raw.related_sales_order_name ||
+      raw.relatedSalesOrderName ||
+      raw.related_sales_order_id ||
+      raw.relatedSalesOrderId,
+  );
+
+  if (sourceType.includes("draft") || /^#?d\d+/i.test(sourceOrder)) return "";
+  if (sourceType && !sourceType.includes("order")) return "";
+  if (!sourceType && !sourceOrder) return "";
+
   const direct = text(
     raw.related_sales ||
       raw.relatedSales ||
@@ -1015,6 +1042,77 @@ function getRelatedSalesName(raw) {
       raw.customerSalesOwner,
   );
   return matchSalesName(direct) || direct;
+}
+
+function getEarliestRelatedSalesOrderCandidate(raw) {
+  const candidates = getRelatedSalesCandidates(raw)
+    .filter((candidate) => {
+      const sourceType = normalizeComparable(
+        candidate.source_type ||
+          candidate.sourceType ||
+          candidate.type ||
+          candidate.source ||
+          candidate.related_sales_source_type ||
+          candidate.relatedSalesSourceType,
+      );
+      const orderName = text(candidate.order_name || candidate.orderName || candidate.name || candidate.order_id || candidate.orderId);
+      if (sourceType.includes("draft") || /^#?d\d+/i.test(orderName)) return false;
+      return !sourceType || sourceType.includes("order");
+    })
+    .filter((candidate) => getCandidateSalesName(candidate));
+
+  if (!candidates.length) return null;
+  return candidates.sort((a, b) => {
+    const aTime = Date.parse(text(a.created_at || a.createdAt || a.order_created_at || a.orderCreatedAt || a.processed_at || a.processedAt)) || Number.MAX_SAFE_INTEGER;
+    const bTime = Date.parse(text(b.created_at || b.createdAt || b.order_created_at || b.orderCreatedAt || b.processed_at || b.processedAt)) || Number.MAX_SAFE_INTEGER;
+    return aTime - bTime;
+  })[0];
+}
+
+function getRelatedSalesCandidates(raw) {
+  const candidateSources = [
+    raw.related_sales_orders,
+    raw.relatedSalesOrders,
+    raw.related_sales_candidates,
+    raw.relatedSalesCandidates,
+    raw.customer_sales_orders,
+    raw.customerSalesOrders,
+    raw.previous_sales_orders,
+    raw.previousSalesOrders,
+  ];
+  const candidates = [];
+  for (const source of candidateSources) {
+    candidates.push(...parseArrayValue(source));
+  }
+  return candidates.filter((candidate) => candidate && typeof candidate === "object");
+}
+
+function parseArrayValue(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function getCandidateSalesName(candidate) {
+  const direct = text(
+    candidate.sales ||
+      candidate.sales_name ||
+      candidate.salesName ||
+      candidate.related_sales ||
+      candidate.relatedSales ||
+      candidate.assigned_sales ||
+      candidate.assignedSales ||
+      candidate.owner ||
+      candidate.owner_name ||
+      candidate.ownerName,
+  );
+  const tags = normalizeTags(candidate.tags || candidate.order_tags || candidate.orderTags);
+  return matchSalesName(direct) || matchSalesName(tags.join(" "));
 }
 
 function normalizeTags(value) {

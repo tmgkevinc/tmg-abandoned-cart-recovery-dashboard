@@ -498,6 +498,13 @@ function renderRulesFunnel() {
       outcome: "If a lead was assigned before the recovered order was created, it becomes Recovered by Sales for that assigned sales rep. Otherwise it is Recovered Auto.",
     },
     {
+      label: "Related sales rule",
+      count: 0,
+      countType: "info",
+      rule: "Related Sales is tied only to historical Shopify orders. Draft orders are ignored. If more than one historical order matches the customer, the earliest order's sales tag is used.",
+      outcome: "This is only relationship context for assignment priority, not recovery ownership.",
+    },
+    {
       label: "Inventory gate",
       count: counts.noInventory,
       rule: "Lead is removed only when all non-PP/PSP/surcharge products in the cart have no inventory.",
@@ -551,7 +558,7 @@ function renderRulesFunnel() {
               <div>
                 <div class="step-title">
                   <strong>${escapeHtml(step.label)}</strong>
-                  <span class="${step.countType === "total" ? "" : "funnel-removal-count"}">${formatFunnelStepCount(step)}</span>
+                  <span class="${step.countType === "total" || step.countType === "info" ? "" : "funnel-removal-count"}">${formatFunnelStepCount(step)}</span>
                 </div>
                 <p>${escapeHtml(step.rule)}</p>
                 <small>${escapeHtml(step.outcome)}</small>
@@ -592,6 +599,7 @@ function renderRuleGroup(title, rows) {
 }
 
 function formatFunnelStepCount(step) {
+  if (step.countType === "info") return "Rule";
   const count = Number(step.count || 0);
   const label = `${Math.abs(count).toLocaleString()} leads`;
   return step.countType === "total" ? label : `-${label}`;
