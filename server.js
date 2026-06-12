@@ -1279,6 +1279,17 @@ async function fetchAssignmentsFromDataHub(markets = [], limit = 10000) {
     rows.push(...await fetchAssignmentRows(endpoint, normalizedMarkets, limit));
   }
 
+  const directRecordsEndpoint = "/api/data-hub/records?table=abandoned_cart_lead_assignments";
+  if (!endpoint.includes("abandoned_cart_lead_assignments")) {
+    for (const market of normalizedMarkets.length ? normalizedMarkets : Object.keys(COUNTRY_META)) {
+      try {
+        rows.push(...await fetchAssignmentRows(directRecordsEndpoint, [market], limit));
+      } catch (error) {
+        console.warn(`Data Hub direct assignment records read failed for ${market}; using report rows. ${error.message}`);
+      }
+    }
+  }
+
   return buildAssignmentMap(rows);
 }
 
