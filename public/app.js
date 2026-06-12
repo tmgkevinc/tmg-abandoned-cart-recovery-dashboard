@@ -464,7 +464,7 @@ function renderRulesFunnel() {
       label: "Recovered gate",
       count: counts.recovered,
       rule: "Current matching is done upstream by Data Hub, not inside this page. This dashboard treats a checkout as recovered when the enriched abandoned-cart record includes completed/order/recovered signals such as completed_at, order_id, or is_recovered. If Data Hub provides a recovered order number, it is shown in Leads notes.",
-      outcome: "If a lead was assigned before the recovered order was created, it becomes Recovered by Sales for that assigned sales rep. Otherwise it is Recovered Auto, unless Data Hub provides a sales-tag owner.",
+      outcome: "If a lead was assigned before the recovered order was created, it becomes Recovered by Sales for that assigned sales rep. Otherwise it is Recovered Auto.",
     },
     {
       label: "Inventory gate",
@@ -501,7 +501,7 @@ function renderRulesFunnel() {
     ["Valid", "Effective lead for sales follow-up."],
     ["Invalid", "Lead does not qualify, or sales manually marked it as not useful."],
     ["Recovered Auto", "Shopify/Data Hub shows a recovered order, but there was no earlier sales assignment tied to that checkout."],
-    ["Recovered by Sales", "The checkout was assigned before the recovered order was created, or Data Hub provides a sales-tag owner."],
+    ["Recovered by Sales", "The checkout was assigned to a sales rep before the recovered order was created."],
   ];
 
   els.rulesFunnel.innerHTML = `
