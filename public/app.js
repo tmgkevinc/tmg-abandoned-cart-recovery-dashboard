@@ -438,48 +438,50 @@ function renderRulesFunnel() {
     {
       label: "All abandoned carts",
       count: counts.all,
+      countType: "total",
       rule: "Loaded from Data Hub table shopify_abandoned_checkouts_raw for US, CA, and AU.",
       outcome: "Starting population before lead qualification.",
     },
     {
       label: "Age gate",
-      count: counts.afterTooNew,
+      count: counts.tooNew,
       rule: "Checkout must be older than 72 hours. Leads within 72 hours stay Invalid until they age in.",
       outcome: "Filtered status: Too New.",
     },
     {
       label: "Phone gate",
-      count: counts.afterNoContact,
+      count: counts.noContact,
       rule: "Lead must have checkout phone. Checkout email is not required. Leads older than 30 days remain Valid when they pass the other gates.",
       outcome: "Filtered status: No Phone.",
     },
     {
       label: "Duplicate gate",
-      count: counts.afterDuplicate,
+      count: counts.duplicate,
       rule: "For the same customer name and same product set, keep only the newest checkout.",
       outcome: "Filtered status: Duplicate.",
     },
     {
       label: "Recovered gate",
-      count: counts.afterRecovered,
+      count: counts.recovered,
       rule: "Current matching is done upstream by Data Hub, not inside this page. This dashboard treats a checkout as recovered when the enriched abandoned-cart record includes completed/order/recovered signals such as completed_at, order_id, or is_recovered. If Data Hub provides a recovered order number, it is shown in Leads notes.",
       outcome: "Recovered with no sales tag becomes Recovered Auto. Recovered with a sales tag or recovered_by_sales flag becomes Recovered by Sales. Recovered leads are reset to Unassigned so they do not conflict with active sales assignment.",
     },
     {
       label: "Inventory gate",
-      count: counts.afterInventory,
+      count: counts.noInventory,
       rule: "Lead is removed only when all non-PP/PSP/surcharge products in the cart have no inventory.",
       outcome: "Filtered status: No Inventory.",
     },
     {
       label: "Valid before manual review",
       count: counts.afterInventory,
+      countType: "total",
       rule: "Leads that pass the automated Data Hub gates become valid follow-up candidates.",
       outcome: "Manual review can still remove leads that are not useful for sales follow-up.",
     },
     {
       label: "Manually marked gate",
-      count: counts.ready,
+      count: counts.manualMarked,
       rule: "Manual judgement can remove spam, not interested leads, internal test checkouts, or other leads that sales/admin decides should not be followed up.",
       outcome: `${counts.manualMarked.toLocaleString()} leads are currently recorded under Manually Marked.`,
     },
@@ -518,7 +520,7 @@ function renderRulesFunnel() {
               <div>
                 <div class="step-title">
                   <strong>${escapeHtml(step.label)}</strong>
-                  <span>${Number(step.count || 0).toLocaleString()} leads</span>
+                  <span>${formatFunnelStepCount(step)}</span>
                 </div>
                 <p>${escapeHtml(step.rule)}</p>
                 <small>${escapeHtml(step.outcome)}</small>
@@ -556,6 +558,12 @@ function renderRuleGroup(title, rows) {
         .join("")}
     </section>
   `;
+}
+
+function formatFunnelStepCount(step) {
+  const count = Number(step.count || 0);
+  const label = `${Math.abs(count).toLocaleString()} leads`;
+  return step.countType === "total" ? label : `-${label}`;
 }
 
 function getFunnelCounts(leads) {
