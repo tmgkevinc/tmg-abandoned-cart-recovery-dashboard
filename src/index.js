@@ -914,6 +914,7 @@ function applyFunnelStatus(leads) {
             : "Invalid";
     return {
       ...lead,
+      recoveredBy: getRecoveredByLabel(lead, recoveredFromData),
       assignedSales: recoveredFromData ? "" : lead.assignedSales,
       assignedAt: recoveredFromData ? "" : lead.assignedAt,
       funnelStatus: status,
@@ -922,6 +923,13 @@ function applyFunnelStatus(leads) {
       salesStatus: leadStatus,
     };
   });
+}
+
+function getRecoveredByLabel(lead, recoveredFromData) {
+  if (!recoveredFromData) return "";
+  if (lead.recoveredBySalesName) return lead.recoveredBySalesName;
+  if (lead.assignedSales) return lead.assignedSales;
+  return lead.recoveredBySales ? "Sales" : "Auto";
 }
 
 function buildRecoveredReason(lead) {

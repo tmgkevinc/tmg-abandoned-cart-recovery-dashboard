@@ -51,6 +51,7 @@ const markets = ["US", "CA", "AU"];
 
 const baseColumns = [
   "Lead Status",
+  "Recovered By",
   "Market",
   "Grade",
   "Checkout",
@@ -756,7 +757,7 @@ function renderTableHeads() {
 
 function renderLeadRows() {
   if (!state.visibleLeads.length) {
-    els.leadTableBody.innerHTML = `<tr class="empty-row"><td colspan="65">No leads match the current filters.</td></tr>`;
+    els.leadTableBody.innerHTML = `<tr class="empty-row"><td colspan="66">No leads match the current filters.</td></tr>`;
     return;
   }
   els.leadTableBody.innerHTML = state.visibleLeads.map(renderLeadRow).join("");
@@ -764,7 +765,7 @@ function renderLeadRows() {
 
 function renderSalesRows() {
   if (!state.salesVisibleLeads.length) {
-    els.salesTableBody.innerHTML = `<tr class="empty-row"><td colspan="65">No active assigned leads match the current filters.</td></tr>`;
+    els.salesTableBody.innerHTML = `<tr class="empty-row"><td colspan="66">No active assigned leads match the current filters.</td></tr>`;
     els.salesDetailSubtitle.textContent = "No assigned lead detail to show.";
     return;
   }
@@ -802,6 +803,7 @@ function renderLeadRow(lead) {
           ${leadStatuses.map((status) => `<option value="${escapeAttribute(status)}" ${getLeadStatus(lead) === status ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
         </select>
       </td>
+      ${cell(getRecoveredByValue(lead))}
       ${cell(lead.market)}
       <td><span class="grade">${escapeHtml(lead.grade)}</span></td>
       <td>
@@ -1049,6 +1051,7 @@ function getDraftExportHeaders() {
 function getExportValues(lead) {
   const values = [
     getLeadStatus(lead),
+    getRecoveredByValue(lead),
     lead.market,
     lead.grade,
     lead.checkout,
@@ -1073,6 +1076,14 @@ function getExportValues(lead) {
     values.push(item.title || "", item.sku || "", item.checkoutPrice || "", item.currentPrice || "", item.inventory ?? "", item.productUrl || "");
   }
   return values;
+}
+
+function getRecoveredByValue(lead) {
+  const status = getLeadStatus(lead);
+  if (status === "Recovered Auto") return "Auto";
+  if (status === "Recovered by Sales") return lead.recoveredBy || getRecoveredBySalesOwner(lead) || "Sales";
+  if (lead.funnelStatus === "Recovered") return lead.recoveredBy || (lead.recoveredBySales ? "Sales" : "Auto");
+  return "";
 }
 
 function getDraftExportValues(draft) {
