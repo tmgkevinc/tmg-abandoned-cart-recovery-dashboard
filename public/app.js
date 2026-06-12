@@ -520,7 +520,7 @@ function renderRulesFunnel() {
               <div>
                 <div class="step-title">
                   <strong>${escapeHtml(step.label)}</strong>
-                  <span>${formatFunnelStepCount(step)}</span>
+                  <span class="${step.countType === "total" ? "" : "funnel-removal-count"}">${formatFunnelStepCount(step)}</span>
                 </div>
                 <p>${escapeHtml(step.rule)}</p>
                 <small>${escapeHtml(step.outcome)}</small>

@@ -508,6 +508,10 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.step-title span.funnel-removal-count {
+  color: var(--red);
+}
+
 .funnel-step p {
   margin-bottom: 4px;
 }
@@ -749,6 +753,7 @@ body[data-role="sales"] .controls,
 body[data-role="sales"] #marketSummary,
 body[data-role="sales"] .sales-overview-strip,
 body[data-role="sales"] .qualified-panel,
+body[data-role="sales"] #draftsTab,
 body[data-role="sales"] #rulesTab,
 body[data-role="sales"] .sales-card {
   display: none;
