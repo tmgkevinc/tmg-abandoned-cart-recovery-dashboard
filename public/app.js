@@ -15,11 +15,17 @@ const els = {
   leadStatusFilter: document.querySelector("#leadStatusFilter"),
   gradeFilter: document.querySelector("#gradeFilter"),
   salesFilter: document.querySelector("#salesFilter"),
+  relatedSalesFilter: document.querySelector("#relatedSalesFilter"),
+  subtotalMinFilter: document.querySelector("#subtotalMinFilter"),
+  subtotalMaxFilter: document.querySelector("#subtotalMaxFilter"),
   searchInput: document.querySelector("#searchInput"),
   salesMarketFilter: document.querySelector("#salesMarketFilter"),
   salesLeadStatusFilter: document.querySelector("#salesLeadStatusFilter"),
   salesGradeFilter: document.querySelector("#salesGradeFilter"),
   salesDetailSalesFilter: document.querySelector("#salesDetailSalesFilter"),
+  salesRelatedSalesFilter: document.querySelector("#salesRelatedSalesFilter"),
+  salesSubtotalMinFilter: document.querySelector("#salesSubtotalMinFilter"),
+  salesSubtotalMaxFilter: document.querySelector("#salesSubtotalMaxFilter"),
   salesSearchInput: document.querySelector("#salesSearchInput"),
   draftMarketFilter: document.querySelector("#draftMarketFilter"),
   draftLeadStatusFilter: document.querySelector("#draftLeadStatusFilter"),
@@ -107,7 +113,16 @@ els.exportSalesTabsButton.addEventListener("click", () => exportCsv(state.salesV
 els.exportDraftButton.addEventListener("click", () => exportCsv(state.visibleDrafts, "draft-recovery-leads"));
 els.tabButtons.forEach((button) => button.addEventListener("click", () => setActiveTab(button.dataset.tab)));
 
-for (const control of [els.marketFilter, els.leadStatusFilter, els.gradeFilter, els.salesFilter, els.searchInput]) {
+for (const control of [
+  els.marketFilter,
+  els.leadStatusFilter,
+  els.gradeFilter,
+  els.salesFilter,
+  els.relatedSalesFilter,
+  els.subtotalMinFilter,
+  els.subtotalMaxFilter,
+  els.searchInput,
+]) {
   control.addEventListener("input", applyFilters);
 }
 
@@ -116,6 +131,9 @@ for (const control of [
   els.salesLeadStatusFilter,
   els.salesGradeFilter,
   els.salesDetailSalesFilter,
+  els.salesRelatedSalesFilter,
+  els.salesSubtotalMinFilter,
+  els.salesSubtotalMaxFilter,
   els.salesSearchInput,
 ]) {
   control.addEventListener("input", applyFilters);
@@ -282,6 +300,7 @@ async function loadLeads() {
     state.salesUsers = data.salesUsers || state.salesUsers;
     state.leads = data.leads || [];
     populateGradeFilter(state.leads);
+    populateRelatedSalesFilter(state.leads);
     renderSummary(data.summary || {});
     renderRulesFunnel();
     applyFilters();
@@ -353,6 +372,18 @@ function populateGradeFilter(leads) {
   const grades = [...new Set(leads.map((lead) => lead.grade).filter(Boolean))].sort((a, b) => gradeRank(a) - gradeRank(b));
   els.gradeFilter.innerHTML = [`<option value="ALL">All grades</option>`, ...grades.map((grade) => `<option value="${grade}">${grade}</option>`)].join("");
   els.salesGradeFilter.innerHTML = [`<option value="ALL">All grades</option>`, ...grades.map((grade) => `<option value="${grade}">${grade}</option>`)].join("");
+}
+
+function populateRelatedSalesFilter(leads) {
+  const relatedSales = [...new Set(leads.map((lead) => lead.relatedSales).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const options = [
+    `<option value="ALL">All related sales</option>`,
+    `<option value="HAS">Has related sales</option>`,
+    `<option value="NONE">No related sales</option>`,
+    ...relatedSales.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
+  ].join("");
+  els.relatedSalesFilter.innerHTML = options;
+  els.salesRelatedSalesFilter.innerHTML = options;
 }
 
 function renderSummary(summary) {
@@ -603,11 +634,17 @@ function applyFilters() {
   const leadStatus = els.leadStatusFilter.value;
   const grade = els.gradeFilter.value;
   const sales = els.salesFilter.value;
+  const relatedSales = els.relatedSalesFilter.value;
+  const subtotalMin = parseMoneyFilter(els.subtotalMinFilter.value);
+  const subtotalMax = parseMoneyFilter(els.subtotalMaxFilter.value);
   const query = els.searchInput.value.trim().toLowerCase();
   const salesMarket = els.salesMarketFilter.value;
   const salesLeadStatus = els.salesLeadStatusFilter.value;
   const salesGrade = els.salesGradeFilter.value;
   const salesDetailSales = els.salesDetailSalesFilter.value;
+  const salesRelatedSales = els.salesRelatedSalesFilter.value;
+  const salesSubtotalMin = parseMoneyFilter(els.salesSubtotalMinFilter.value);
+  const salesSubtotalMax = parseMoneyFilter(els.salesSubtotalMaxFilter.value);
   const salesQuery = els.salesSearchInput.value.trim().toLowerCase();
   const draftMarket = els.draftMarketFilter.value;
   const draftLeadStatus = els.draftLeadStatusFilter.value;
@@ -619,6 +656,8 @@ function applyFilters() {
     if (leadStatus !== "ALL" && getLeadStatus(lead) !== leadStatus) return false;
     if (grade !== "ALL" && lead.grade !== grade) return false;
     if (sales !== "ALL" && (lead.assignedSales || "") !== sales) return false;
+    if (!passesRelatedSalesFilter(lead, relatedSales)) return false;
+    if (!passesSubtotalFilter(lead, subtotalMin, subtotalMax)) return false;
     if (state.role === "sales" && state.user !== "Admin" && lead.assignedSales !== state.user) return false;
     if (!query) return true;
     return searchBlob(lead).includes(query);
@@ -631,6 +670,8 @@ function applyFilters() {
     .filter((lead) => (salesMarket !== "ALL" ? lead.market === salesMarket : true))
     .filter((lead) => (salesLeadStatus !== "ALL" ? getLeadStatus(lead) === salesLeadStatus : true))
     .filter((lead) => (salesGrade !== "ALL" ? lead.grade === salesGrade : true))
+    .filter((lead) => passesRelatedSalesFilter(lead, salesRelatedSales))
+    .filter((lead) => passesSubtotalFilter(lead, salesSubtotalMin, salesSubtotalMax))
     .filter((lead) => (salesQuery ? searchBlob(lead).includes(salesQuery) : true))
     .sort(sortByGradeThenDate);
 
@@ -646,6 +687,26 @@ function applyFilters() {
   renderLeadRows();
   renderSalesRows();
   renderDraftRows();
+}
+
+function parseMoneyFilter(value) {
+  const number = Number(String(value || "").replace(/[$,]/g, ""));
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function passesSubtotalFilter(lead, min, max) {
+  const subtotal = Number(lead.subtotal || 0);
+  if (min !== null && subtotal < min) return false;
+  if (max !== null && subtotal > max) return false;
+  return true;
+}
+
+function passesRelatedSalesFilter(lead, filterValue) {
+  const relatedSales = lead.relatedSales || "";
+  if (filterValue === "ALL") return true;
+  if (filterValue === "HAS") return Boolean(relatedSales);
+  if (filterValue === "NONE") return !relatedSales;
+  return relatedSales === filterValue;
 }
 
 function renderSalesPersonalSummary() {
