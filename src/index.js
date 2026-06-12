@@ -140,6 +140,7 @@ async function handleLeads(url) {
     .map((lead) => ({ ...lead, assignmentSource: lead.assignedSales ? "Manual" : "" }))
     .sort(sortByGradeThenDate);
   const summary = buildSummary(withFunnel);
+  summary.bySales = buildSalesAssignmentSummary(assignments, markets);
 
   return jsonResponse(200, {
     fetchedAt: startedAt.toISOString(),
@@ -877,6 +878,8 @@ function applyFunnelStatus(leads) {
     let reason = lead.funnelReason || status;
     const savedLeadStatus = normalizeLeadStatus(lead.leadStatus || lead.salesStatus);
     const recoveredFromData = lead.recovered || status === "Recovered";
+    const hasProduct = lead.lineItems.length > 0;
+    const hasInventory = lead.lineItems.some((item) => itemHasInventory(item));
 
     if (recoveredFromData) {
       status = "Recovered";
@@ -893,6 +896,9 @@ function applyFunnelStatus(leads) {
     } else if (!lead.funnelStatus && latestByNameProducts.get(`${normalizeComparable(lead.name)}|${lead.productKey}`)?.id !== lead.id) {
       status = "Duplicate";
       reason = "Older checkout with same name and products";
+    } else if (!lead.funnelStatus && hasProduct && !hasInventory) {
+      status = "No Inventory";
+      reason = "All non-PP/PSP/surcharge products have no inventory";
     }
     const validFunnelStatus = status === "Ready" || status === "Older Than 30 Days";
     const leadStatus =
@@ -1016,6 +1022,28 @@ function buildSummary(leads) {
     }
   }
   return { byMarket, bySales, latestCreatedAt };
+}
+
+function buildSalesAssignmentSummary(assignments, markets = []) {
+  const allowedMarkets = new Set(markets.map((market) => text(market).toUpperCase()).filter(Boolean));
+  const bySales = {};
+  for (const assignment of Object.values(assignments || {})) {
+    const sales = text(assignment.sales || assignment.assignedSales);
+    if (!sales || sales === "Non-sales") continue;
+    const status = normalizeLeadStatus(assignment.leadStatus || assignment.salesStatus);
+    if (status !== "Valid") continue;
+    const market = text(assignment.market).toUpperCase();
+    if (!COUNTRY_META[market]) continue;
+    if (allowedMarkets.size && !allowedMarkets.has(market)) continue;
+    bySales[sales] ||= { US: 0, CA: 0, AU: 0, total: 0, lastAssignedAt: "" };
+    bySales[sales][market] += 1;
+    bySales[sales].total += 1;
+    const assignedAt = assignment.assignedAt || assignment.updatedAt || "";
+    if (assignedAt && (!bySales[sales].lastAssignedAt || new Date(assignedAt) > new Date(bySales[sales].lastAssignedAt))) {
+      bySales[sales].lastAssignedAt = assignedAt;
+    }
+  }
+  return bySales;
 }
 
 function buildDraftSummary(drafts) {
