@@ -878,6 +878,7 @@ function applyFunnelStatus(leads) {
     let reason = lead.funnelReason || status;
     const savedLeadStatus = normalizeLeadStatus(lead.leadStatus || lead.salesStatus);
     const recoveredFromData = lead.recovered || status === "Recovered";
+    const canRunAutoGate = !lead.funnelStatus || lead.funnelStatus === "Ready" || lead.funnelStatus === "Older Than 30 Days";
     const hasProduct = lead.lineItems.length > 0;
     const hasInventory = lead.lineItems.some((item) => itemHasInventory(item));
 
@@ -887,16 +888,16 @@ function applyFunnelStatus(leads) {
     } else if (lead.manualStatus && !(lead.manualStatus === "No Phone" && lead.checkoutPhone)) {
       status = lead.manualStatus;
       reason = lead.manualNotes || "Manually updated";
-    } else if (!lead.funnelStatus && lead.ageHours !== null && lead.ageHours < 72) {
+    } else if (canRunAutoGate && lead.ageHours !== null && lead.ageHours < 72) {
       status = "Too New";
       reason = "Less than 72 hours old";
-    } else if (!lead.funnelStatus && !lead.checkoutPhone) {
+    } else if (canRunAutoGate && !lead.checkoutPhone) {
       status = "No Phone";
       reason = "No checkout phone";
-    } else if (!lead.funnelStatus && latestByNameProducts.get(`${normalizeComparable(lead.name)}|${lead.productKey}`)?.id !== lead.id) {
+    } else if (canRunAutoGate && latestByNameProducts.get(`${normalizeComparable(lead.name)}|${lead.productKey}`)?.id !== lead.id) {
       status = "Duplicate";
       reason = "Older checkout with same name and products";
-    } else if (!lead.funnelStatus && hasProduct && !hasInventory) {
+    } else if (canRunAutoGate && hasProduct && !hasInventory) {
       status = "No Inventory";
       reason = "All non-PP/PSP/surcharge products have no inventory";
     }
