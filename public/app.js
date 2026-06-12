@@ -355,8 +355,8 @@ function renderUserMode() {
   }
   if (state.role === "sales" && state.user !== "Admin") {
     setActiveTab("workspace");
-    els.salesFilter.value = state.user;
-    els.salesFilter.disabled = true;
+    els.salesFilter.value = "ALL";
+    els.salesFilter.disabled = false;
     els.salesDetailSalesFilter.value = state.user;
     els.salesDetailSalesFilter.disabled = true;
     els.draftSalesFilter.value = state.user;
@@ -666,7 +666,6 @@ function applyFilters() {
     if (sales !== "ALL" && (lead.assignedSales || "") !== sales) return false;
     if (!passesRelatedSalesFilter(lead, relatedSales)) return false;
     if (!passesSubtotalFilter(lead, subtotalMin, subtotalMax)) return false;
-    if (state.role === "sales" && state.user !== "Admin" && lead.assignedSales !== state.user) return false;
     if (!query) return true;
     return searchBlob(lead).includes(query);
   }).sort(sortBySubtotalDesc);
