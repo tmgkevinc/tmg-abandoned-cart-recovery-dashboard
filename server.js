@@ -943,8 +943,8 @@ function applyFunnelStatus(leads) {
     return {
       ...lead,
       recoveredBy: getRecoveredByLabel(lead, recoveredFromData, recoveredAfterAssignment),
-      assignedSales: recoveredFromData ? "" : lead.assignedSales,
-      assignedAt: recoveredFromData ? "" : lead.assignedAt,
+      assignedSales: recoveredFromData && !recoveredAfterAssignment ? "" : lead.assignedSales,
+      assignedAt: recoveredFromData && !recoveredAfterAssignment ? "" : lead.assignedAt,
       funnelStatus: status,
       funnelReason: reason,
       leadStatus,
