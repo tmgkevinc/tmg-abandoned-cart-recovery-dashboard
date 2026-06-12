@@ -55,6 +55,7 @@ const baseColumns = [
   "Grade",
   "Checkout",
   "Sales",
+  "Related Sales",
   "Leads notes",
   "Created At Date",
   "Subtotal",
@@ -272,7 +273,7 @@ async function loadLeads() {
   els.refreshButton.disabled = true;
   els.refreshButton.textContent = "Loading...";
   try {
-    const response = await fetch("/api/leads?market=US,CA,AU&limit=300", { cache: "no-store" });
+    const response = await fetch("/api/leads?market=US,CA,AU&limit=5000&all=1", { cache: "no-store" });
     const contentType = response.headers.get("content-type") || "";
     const data = contentType.includes("application/json")
       ? await response.json()
@@ -807,6 +808,7 @@ function renderLeadRow(lead) {
           ${state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}" ${lead.assignedSales === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
         </select>
       </td>
+      ${cell(lead.relatedSales)}
       <td><textarea data-field="notes" placeholder="Leads notes">${escapeHtml(getLeadNotes(lead))}</textarea></td>
       ${cell(formatCreatedAtWithAge(lead))}
       ${cell(formatMoney(lead.subtotal, lead.currency))}
@@ -968,6 +970,7 @@ function searchBlob(lead) {
     lead.shippingName,
     lead.checkoutEmail,
     lead.checkoutPhone,
+    lead.relatedSales,
     lead.shippingState,
     lead.address,
     lead.draftStatus,
@@ -1042,6 +1045,7 @@ function getExportValues(lead) {
     lead.grade,
     lead.checkout,
     lead.assignedSales,
+    lead.relatedSales,
     getLeadNotes(lead),
     formatCreatedAtWithAge(lead),
     lead.subtotal,
