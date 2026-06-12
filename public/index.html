@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TMG Lead Recovery Workspace</title>
-    <link rel="stylesheet" href="/styles.css?v=20260612-1945" />
+    <link rel="stylesheet" href="/styles.css?v=20260612-2010" />
   </head>
   <body>
     <div id="loginOverlay" class="login-overlay">
@@ -93,6 +93,22 @@
               <option value="ALL">All sales</option>
             </select>
           </label>
+          <label>
+            <span>Related sales</span>
+            <select id="relatedSalesFilter">
+              <option value="ALL">All related sales</option>
+              <option value="HAS">Has related sales</option>
+              <option value="NONE">No related sales</option>
+            </select>
+          </label>
+          <label>
+            <span>Min subtotal</span>
+            <input id="subtotalMinFilter" type="number" min="0" step="1" placeholder="0" />
+          </label>
+          <label>
+            <span>Max subtotal</span>
+            <input id="subtotalMaxFilter" type="number" min="0" step="1" placeholder="No max" />
+          </label>
           <label class="search-field">
             <span>Search</span>
             <input id="searchInput" type="search" placeholder="Checkout, name, email, phone, SKU" />
@@ -155,6 +171,22 @@
               <select id="salesDetailSalesFilter">
                 <option value="ALL">All sales</option>
               </select>
+            </label>
+            <label>
+              <span>Related sales</span>
+              <select id="salesRelatedSalesFilter">
+                <option value="ALL">All related sales</option>
+                <option value="HAS">Has related sales</option>
+                <option value="NONE">No related sales</option>
+              </select>
+            </label>
+            <label>
+              <span>Min subtotal</span>
+              <input id="salesSubtotalMinFilter" type="number" min="0" step="1" placeholder="0" />
+            </label>
+            <label>
+              <span>Max subtotal</span>
+              <input id="salesSubtotalMaxFilter" type="number" min="0" step="1" placeholder="No max" />
             </label>
             <label class="search-field">
               <span>Search</span>
@@ -235,6 +267,6 @@
       </section>
     </main>
 
-    <script src="/app.js?v=20260612-1945"></script>
+    <script src="/app.js?v=20260612-2010"></script>
   </body>
 </html>
