@@ -531,6 +531,7 @@ function normalizeCheckout(record, market, productLookup, klaviyoLookup) {
     recoveredOrderNumber: text(raw.recovered_order_name || raw.order?.name || raw.order_name || raw.orderName || raw.order_id || raw.orderId),
     recoveredBySales,
     recoveredBySalesName,
+    relatedSales: getRelatedSalesName(raw),
     recoveredOrderTags,
     rawUpdatedAt: text(raw.updated_at || raw.updatedAt || record.updated_at || record.updatedAt),
     leadStatus: normalizeLeadStatus(raw.lead_status || ""),
@@ -963,6 +964,20 @@ function getRecoveredBySalesName(raw, recoveredOrderTags) {
       raw.order?.salesName,
   );
   return matchSalesName(direct) || matchSalesName(recoveredOrderTags.join(" "));
+}
+
+function getRelatedSalesName(raw) {
+  const direct = text(
+    raw.related_sales ||
+      raw.relatedSales ||
+      raw.related_sales_name ||
+      raw.relatedSalesName ||
+      raw.customer_related_sales ||
+      raw.customerRelatedSales ||
+      raw.customer_sales_owner ||
+      raw.customerSalesOwner,
+  );
+  return matchSalesName(direct) || direct;
 }
 
 function normalizeTags(value) {
