@@ -786,7 +786,9 @@ function applyFilters() {
 }
 
 function parseMoneyFilter(value) {
-  const number = Number(String(value || "").replace(/[$,]/g, ""));
+  const cleaned = String(value ?? "").replace(/[$,]/g, "").trim();
+  if (!cleaned) return null;
+  const number = Number(cleaned);
   return Number.isFinite(number) && number >= 0 ? number : null;
 }
 
