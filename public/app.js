@@ -292,12 +292,12 @@ async function loadLeads() {
   els.refreshButton.disabled = true;
   els.refreshButton.textContent = "Loading...";
   try {
-    const response = await fetch("/api/leads?market=US,CA,AU&limit=5000&all=1", { cache: "no-store" });
-    const contentType = response.headers.get("content-type") || "";
-    const data = contentType.includes("application/json")
-      ? await response.json()
-      : { error: `Dashboard API returned ${response.status} ${response.statusText || ""} instead of JSON.` };
-    if (!response.ok) throw new Error(data.error || "Could not load leads.");
+    const marketResponses = [];
+    for (const market of markets) {
+      els.refreshButton.textContent = `Loading ${market}...`;
+      marketResponses.push(await fetchLeadsForMarket(market));
+    }
+    const data = mergeLeadResponses(marketResponses);
     state.salesUsers = data.salesUsers || state.salesUsers;
     state.leads = data.leads || [];
     populateGradeFilter(state.leads);
@@ -315,6 +315,75 @@ async function loadLeads() {
     els.refreshButton.disabled = false;
     els.refreshButton.textContent = "Refresh Data Hub";
   }
+}
+
+async function fetchLeadsForMarket(market) {
+  const response = await fetch(`/api/leads?market=${encodeURIComponent(market)}&limit=5000&all=1`, { cache: "no-store" });
+  const contentType = response.headers.get("content-type") || "";
+  const data = contentType.includes("application/json")
+    ? await response.json()
+    : { error: `Dashboard API returned ${response.status} ${response.statusText || ""} instead of JSON while loading ${market}.` };
+  if (!response.ok) throw new Error(data.error || `Could not load ${market} leads.`);
+  return data;
+}
+
+function mergeLeadResponses(responses) {
+  return responses.reduce((merged, data) => {
+    merged.leads.push(...(data.leads || []));
+    merged.salesUsers = mergeUnique(merged.salesUsers, data.salesUsers || []);
+    merged.summary = mergeSummaries(merged.summary, data.summary || {});
+    return merged;
+  }, { leads: [], salesUsers: [], summary: { byMarket: {}, latestCreatedAt: {}, bySales: {} } });
+}
+
+function mergeSummaries(base, next) {
+  const merged = {
+    ...base,
+    byMarket: { ...(base.byMarket || {}) },
+    latestCreatedAt: { ...(base.latestCreatedAt || {}) },
+    bySales: { ...(base.bySales || {}) },
+  };
+
+  for (const [market, item] of Object.entries(next.byMarket || {})) {
+    const current = merged.byMarket[market] || {};
+    merged.byMarket[market] = mergeNumericObject(current, item);
+    merged.byMarket[market].ageBuckets = mergeNumericObject(current.ageBuckets || {}, item.ageBuckets || {});
+  }
+
+  for (const [market, value] of Object.entries(next.latestCreatedAt || {})) {
+    if (!merged.latestCreatedAt[market] || new Date(value) > new Date(merged.latestCreatedAt[market])) {
+      merged.latestCreatedAt[market] = value;
+    }
+  }
+
+  for (const [sales, item] of Object.entries(next.bySales || {})) {
+    const current = merged.bySales[sales] || {};
+    const row = mergeNumericObject(current, item);
+    row.lastAssignedAt = getLatestTimestamp(current.lastAssignedAt, item.lastAssignedAt);
+    merged.bySales[sales] = row;
+  }
+
+  return merged;
+}
+
+function mergeNumericObject(base, next) {
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(next || {})) {
+    if (key === "lastAssignedAt" || key === "ageBuckets") continue;
+    if (typeof value === "number") merged[key] = Number(merged[key] || 0) + value;
+    else if (merged[key] === undefined) merged[key] = value;
+  }
+  return merged;
+}
+
+function getLatestTimestamp(a, b) {
+  if (!a) return b || "";
+  if (!b) return a || "";
+  return new Date(b) > new Date(a) ? b : a;
+}
+
+function mergeUnique(base, next) {
+  return [...new Set([...(base || []), ...(next || [])])];
 }
 
 async function loadDrafts() {
