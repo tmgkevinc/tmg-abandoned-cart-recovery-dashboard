@@ -66,13 +66,24 @@ export default {
       if (url.pathname === "/api/assignments" && request.method === "GET") return jsonResponse(200, await readAssignments());
       if (url.pathname === "/api/assignments" && request.method === "POST") return await handleSaveAssignment(request);
 
-      return env.ASSETS.fetch(request);
+      return await assetResponseNoStore(env, request);
     } catch (error) {
       console.error(error);
       return jsonResponse(500, { error: "An unknown server error occurred.", detail: error.message });
     }
   },
 };
+
+async function assetResponseNoStore(env, request) {
+  const response = await env.ASSETS.fetch(request);
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store, max-age=0");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 function configureRuntime(env) {
   DATA_HUB_BASE_URL = String(env.TMG_DATA_HUB_BASE_URL || "").replace(/\/+$/, "");
