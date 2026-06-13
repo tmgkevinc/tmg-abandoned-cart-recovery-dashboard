@@ -293,19 +293,27 @@ async function loadLeads() {
   els.refreshButton.textContent = "Loading...";
   try {
     const marketResponses = [];
+    const marketErrors = [];
     for (const market of markets) {
       els.refreshButton.textContent = `Loading ${market}...`;
-      marketResponses.push(await fetchLeadsForMarket(market));
+      try {
+        marketResponses.push(await fetchLeadsForMarket(market));
+        applyLeadData(
+          mergeLeadResponses(marketResponses),
+          `Loaded ${marketResponses.map((data) => data.markets?.[0]).filter(Boolean).join(", ")} leads. Still checking remaining stores...`,
+        );
+      } catch (error) {
+        marketErrors.push(`${market}: ${error.message}`);
+      }
     }
+    if (!marketResponses.length) throw new Error(marketErrors.join(" | ") || "Could not load leads.");
     const data = mergeLeadResponses(marketResponses);
-    state.salesUsers = data.salesUsers || state.salesUsers;
-    state.leads = data.leads || [];
-    populateGradeFilter(state.leads);
-    populateRelatedSalesFilter(state.leads);
-    renderSummary(data.summary || {});
-    renderRulesFunnel();
-    applyFilters();
-    els.qualifiedSubtitle.textContent = `${state.leads.length.toLocaleString()} abandoned cart leads loaded from Data Hub.`;
+    applyLeadData(
+      data,
+      marketErrors.length
+        ? `${data.leads.length.toLocaleString()} abandoned cart leads loaded. Failed stores: ${marketErrors.join(" | ")}`
+        : `${data.leads.length.toLocaleString()} abandoned cart leads loaded from Data Hub.`,
+    );
   } catch (error) {
     state.leads = [];
     renderRulesFunnel();
@@ -315,6 +323,17 @@ async function loadLeads() {
     els.refreshButton.disabled = false;
     els.refreshButton.textContent = "Refresh Data Hub";
   }
+}
+
+function applyLeadData(data, subtitle) {
+  state.salesUsers = data.salesUsers || state.salesUsers;
+  state.leads = data.leads || [];
+  populateGradeFilter(state.leads);
+  populateRelatedSalesFilter(state.leads);
+  renderSummary(data.summary || {});
+  renderRulesFunnel();
+  applyFilters();
+  els.qualifiedSubtitle.textContent = subtitle;
 }
 
 async function fetchLeadsForMarket(market) {
