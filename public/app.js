@@ -249,6 +249,7 @@ async function loadHealth() {
     els.loginStatus.textContent = health.dataHubConfigured
       ? "Data Hub connection is configured."
       : "Data Hub environment variables are missing on the dashboard server.";
+    renderUserMode();
   } catch (error) {
     els.loginStatus.textContent = "Local dashboard server is not responding.";
   }
@@ -673,7 +674,7 @@ function applyFilters() {
   state.salesVisibleLeads = state.leads
     .filter((lead) => lead.assignedSales && lead.funnelStatus !== "Recovered")
     .filter((lead) => (state.role === "sales" && state.user !== "Admin" ? lead.assignedSales === state.user : true))
-    .filter((lead) => (salesDetailSales !== "ALL" ? (lead.assignedSales || "") === salesDetailSales : true))
+    .filter((lead) => (salesDetailSales && salesDetailSales !== "ALL" ? (lead.assignedSales || "") === salesDetailSales : true))
     .filter((lead) => (salesMarket !== "ALL" ? lead.market === salesMarket : true))
     .filter((lead) => (salesLeadStatus !== "ALL" ? getLeadStatus(lead) === salesLeadStatus : true))
     .filter((lead) => (salesGrade !== "ALL" ? lead.grade === salesGrade : true))
