@@ -492,7 +492,7 @@ function renderSummary(summary) {
     })
     .join("");
 
-  const bySales = summary.bySales || {};
+  const bySales = getActiveAssignedSalesSummary(state.leads);
   const recoveredBySales = getRecoveredBySalesSummary(state.leads);
   els.salesOverview.innerHTML = state.salesUsers
     .filter((name) => name !== "Non-sales")
@@ -830,6 +830,18 @@ function getRecoveredBySalesSummary(leads) {
     summary[salesName].count += 1;
     summary[salesName].amountsByMarket[lead.market] =
       (summary[salesName].amountsByMarket[lead.market] || 0) + Number(lead.subtotal || 0);
+    return summary;
+  }, {});
+}
+
+function getActiveAssignedSalesSummary(leads) {
+  return leads.reduce((summary, lead) => {
+    const sales = lead.assignedSales || "";
+    if (!sales || getLeadStatus(lead) !== "Valid" || lead.funnelStatus === "Recovered") return summary;
+    summary[sales] ||= { US: 0, CA: 0, AU: 0, total: 0, lastAssignedAt: "" };
+    summary[sales][lead.market] = Number(summary[sales][lead.market] || 0) + 1;
+    summary[sales].total += 1;
+    summary[sales].lastAssignedAt = getLatestTimestamp(summary[sales].lastAssignedAt, lead.assignedAt);
     return summary;
   }, {});
 }
