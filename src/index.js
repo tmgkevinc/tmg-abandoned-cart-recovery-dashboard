@@ -169,6 +169,7 @@ async function handleDrafts(url) {
     .filter((market) => COUNTRY_META[market]);
   const limit = Math.max(25, Math.min(Number(url.searchParams.get("limit") || 10000), 50000));
   const startedAt = new Date();
+  const currentYear = startedAt.getFullYear();
 
   const draftResults = await Promise.all(markets.map(async (market) => ({
     market,
@@ -180,6 +181,7 @@ async function handleDrafts(url) {
     .flatMap((result) => result.records.map((record) => ({ record, market: result.market })))
     .map(({ record, market }) => normalizeDraft(record, market, productLookup))
     .filter((draft) => markets.includes(draft.market))
+    .filter((draft) => isCurrentYearDraft(draft, currentYear))
     .filter((draft) => !draft.completed && draft.hasManualShipping)
     .map((draft) => applyAssignment(draft, assignments))
     .map(applyDraftOpportunityStatus)
@@ -190,7 +192,8 @@ async function handleDrafts(url) {
     fetchedAt: startedAt.toISOString(),
     count: drafts.length,
     markets,
-    source: "shopify_draft_orders_raw",
+    year: currentYear,
+    source: "draft-recovery",
     summary: buildDraftSummary(drafts),
     salesUsers,
     drafts,
@@ -285,19 +288,18 @@ async function fetchDataHubRecords(table, country, limit) {
 }
 
 async function fetchDraftOrders(country, limit) {
-  const pageSize = Math.min(Math.max(Number(limit || 10000), 1), 10000);
+  const pageSize = Math.min(Math.max(Number(limit || 1000), 1), 1000);
   const rows = [];
   let offset = 0;
   let hasMore = true;
 
   while (hasMore && rows.length < limit) {
     const params = new URLSearchParams({
-      table: "shopify_draft_orders_raw",
       country,
       limit: String(Math.min(pageSize, limit - rows.length)),
       offset: String(offset),
     });
-    const response = await fetch(`${DATA_HUB_BASE_URL}/api/data-hub/records?${params}`, {
+    const response = await fetch(`${DATA_HUB_BASE_URL}/api/data-hub/reports/draft-recovery?${params}`, {
       headers: { "x-api-key": DATA_HUB_API_KEY },
     });
     const text = await response.text();
@@ -305,10 +307,10 @@ async function fetchDraftOrders(country, limit) {
     try {
       payload = text ? JSON.parse(text) : {};
     } catch (error) {
-      throw new Error(`Data Hub returned invalid JSON for shopify_draft_orders_raw/${country}.`);
+      throw new Error(`Data Hub returned invalid JSON for draft-recovery/${country}.`);
     }
     if (!response.ok) {
-      throw new Error(payload.error || `Data Hub returned ${response.status} for shopify_draft_orders_raw/${country}.`);
+      throw new Error(payload.error || `Data Hub returned ${response.status} for draft-recovery/${country}.`);
     }
 
     const pageRows = extractRecords(payload);
@@ -608,15 +610,22 @@ function normalizeDraft(record, market, productLookup) {
   const customer = raw.customer || {};
   const shipping = raw.shipping_address || raw.shippingAddress || {};
   const billing = raw.billing_address || raw.billingAddress || {};
-  const lineItems = getLineItems(raw)
-    .filter((item) => !isPpProduct(item))
+  const allLineItems = getLineItems(raw);
+  const manualShippingItem = allLineItems.find(isManualShippingLineItem);
+  const explicitShippingLine = getDraftShippingLine(raw);
+  const shippingLine = hasManualShippingLine(explicitShippingLine)
+    ? explicitShippingLine
+    : manualShippingItem
+      ? { title: manualShippingItem.title, price: manualShippingItem.checkoutPrice }
+      : {};
+  const lineItems = allLineItems
+    .filter((item) => item !== manualShippingItem && !isPpProduct(item))
     .map((item) => enrichLineItemFromProducts(item, productLookup?.[market]));
   const completedAt = text(raw.completed_at || raw.completedAt || record.completed_at || record.completedAt);
   const status = text(raw.status || record.status);
   const subtotal = number(raw.subtotal_price || raw.subtotalPrice || raw.subtotalPriceSet?.shopMoney?.amount || record.subtotal_price || raw.total_price || record.total_price);
   const total = number(raw.total_price || raw.totalPrice || raw.totalPriceSet?.shopMoney?.amount || record.total_price || subtotal);
-  const totalTax = number(raw.total_tax || raw.totalTax || raw.totalTaxSet?.shopMoney?.amount || record.total_tax);
-  const shippingLine = getDraftShippingLine(raw, subtotal, total, totalTax);
+  const manualShippingPrice = number(shippingLine.price || shippingLine.price_set?.shop_money?.amount || shippingLine.priceSet?.shopMoney?.amount);
   const createdAt = text(raw.created_at || raw.createdAt || record.created_at || record.createdAt);
   const email = text(raw.email || customer.email || record.customer_email);
   const phone = text(
@@ -635,7 +644,7 @@ function normalizeDraft(record, market, productLookup) {
   const currency = text(raw.currency || raw.currency_code || record.currency_code || COUNTRY_META[market]?.currency || "USD");
   const tags = normalizeTags(raw.tags || record.tags);
   const ageHours = createdAt ? Math.max(0, (Date.now() - new Date(createdAt).getTime()) / 36e5) : null;
-  const marginSummary = calculateMarginSummary(lineItems, subtotal);
+  const marginSummary = calculateMarginSummary(lineItems, subtotal, manualShippingPrice, Boolean(manualShippingItem));
 
   return {
     id: draftId || draftName,
@@ -645,7 +654,7 @@ function normalizeDraft(record, market, productLookup) {
     completed: Boolean(completedAt || status.toLowerCase() === "completed"),
     hasManualShipping: hasManualShippingLine(shippingLine),
     manualShippingTitle: text(shippingLine.title || shippingLine.name || shippingLine.code || "Manual shipping"),
-    manualShippingPrice: number(shippingLine.price || shippingLine.price_set?.shop_money?.amount || shippingLine.priceSet?.shopMoney?.amount),
+    manualShippingPrice,
     grade: buildGrade(total || subtotal, ageHours, "", ""),
     name: customerName || shippingName || billingName || "No name",
     shippingName,
@@ -655,6 +664,8 @@ function normalizeDraft(record, market, productLookup) {
     totalCost: marginSummary.totalCost,
     margin: marginSummary.margin,
     marginPercent: marginSummary.marginPercent,
+    marginWithoutShipping: marginSummary.marginWithoutShipping,
+    marginWithShipping: marginSummary.marginWithShipping,
     currency,
     checkoutPhone: phone,
     checkoutEmail: email,
@@ -686,23 +697,28 @@ function normalizeDraft(record, market, productLookup) {
   };
 }
 
-function calculateMarginSummary(lineItems, subtotal) {
+function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippingIncludedInSubtotal = false) {
   const costs = lineItems.map((item) => item.totalCost).filter((value) => value !== null && value !== undefined);
-  if (!costs.length) return { totalCost: null, margin: null, marginPercent: null };
+  if (!costs.length) return { totalCost: null, margin: null, marginPercent: null, marginWithoutShipping: null, marginWithShipping: null };
   const totalCost = costs.reduce((sum, value) => sum + Number(value || 0), 0);
-  const revenue = Number(subtotal || 0);
-  const margin = revenue - totalCost;
-  const marginPercent = revenue ? margin / revenue : null;
-  return { totalCost, margin, marginPercent };
+  const subtotalRevenue = Number(subtotal || 0);
+  const shipping = Number(shippingAmount || 0);
+  const revenueWithoutShipping = shippingIncludedInSubtotal ? subtotalRevenue - shipping : subtotalRevenue;
+  const revenueWithShipping = shippingIncludedInSubtotal ? subtotalRevenue : subtotalRevenue + shipping;
+  const marginWithoutShipping = revenueWithoutShipping - totalCost;
+  const marginWithShipping = revenueWithShipping - totalCost;
+  const marginPercent = revenueWithoutShipping ? marginWithoutShipping / revenueWithoutShipping : null;
+  return { totalCost, margin: marginWithoutShipping, marginPercent, marginWithoutShipping, marginWithShipping };
 }
 
-function getDraftShippingLine(raw, subtotal = 0, total = 0, totalTax = 0) {
+function getDraftShippingLine(raw) {
   const line = raw.shipping_line || raw.shippingLine || raw.applied_shipping_rate || raw.appliedShippingRate;
   if (line && typeof line === "object") return line;
   if (Array.isArray(raw.shipping_lines) && raw.shipping_lines.length) return raw.shipping_lines[0];
   if (Array.isArray(raw.shippingLines) && raw.shippingLines.length) return raw.shippingLines[0];
-  const inferred = Number(total || 0) - Number(subtotal || 0) - Number(totalTax || 0);
-  if (inferred > 0.009) return { title: "Inferred manual shipping/fee", price: inferred };
+  if (raw.shipping_line_title || raw.shipping_line_price || raw.has_manual_shipping || raw.hasManualShipping) {
+    return { title: raw.shipping_line_title || "Manual shipping", price: raw.shipping_line_price };
+  }
   return {};
 }
 
@@ -713,8 +729,14 @@ function hasManualShippingLine(line) {
   return Boolean(label) || price > 0;
 }
 
+function isManualShippingLineItem(item) {
+  const sku = text(item.sku).toUpperCase();
+  const title = text(item.title).toUpperCase();
+  if (sku.startsWith("PP") || title.includes("PREMIUM SHIPPING PROTECTION") || title === "PSP") return false;
+  return title.includes("SURCHARGE") || title.includes("FREIGHT") || title.includes("DELIVERY") || title.includes("MANUAL SHIPPING");
+}
+
 function applyDraftOpportunityStatus(draft) {
-  const hasContact = Boolean(draft.checkoutPhone || draft.checkoutEmail);
   const hasProduct = draft.lineItems.length > 0;
   const hasInventory = draft.lineItems.some((item) => itemHasInventory(item));
   const rawSavedLeadStatus = text(draft.leadStatus || draft.salesStatus);
@@ -722,9 +744,7 @@ function applyDraftOpportunityStatus(draft) {
     ? rawSavedLeadStatus
     : "";
   const blockedReasons = [];
-  if (!hasContact) blockedReasons.push("No phone or email");
-  if (!hasProduct) blockedReasons.push("No product line items");
-  if (!hasInventory) blockedReasons.push("No product with known inventory");
+  if (!hasProduct || !hasInventory) blockedReasons.push("No product with known inventory");
 
   const leadStatus = savedLeadStatus || (blockedReasons.length ? "Invalid" : "Valid");
   return {
@@ -745,9 +765,18 @@ function itemHasInventory(item) {
 }
 
 function getLineItems(raw) {
-  const direct = raw.line_items_json || raw.line_items || raw.lineItems;
-  if (Array.isArray(direct)) return direct.map(normalizeLineItem);
-  if (Array.isArray(direct?.edges)) return direct.edges.map((edge) => normalizeLineItem(edge.node || edge));
+  for (const direct of [raw.line_items_json, raw.line_items, raw.lineItems]) {
+    if (Array.isArray(direct)) return direct.map(normalizeLineItem);
+    if (Array.isArray(direct?.edges)) return direct.edges.map((edge) => normalizeLineItem(edge.node || edge));
+    if (typeof direct === "string" && direct.trim()) {
+      try {
+        const parsed = JSON.parse(direct);
+        if (Array.isArray(parsed)) return parsed.map(normalizeLineItem);
+      } catch (error) {
+        // Keep trying alternate line item fields.
+      }
+    }
+  }
   return [];
 }
 
@@ -759,13 +788,30 @@ function normalizeLineItem(item) {
     item.price ||
       item.line_price ||
       item.linePrice ||
+      item.checkoutPrice ||
+      item.draft_price ||
+      item.draftPrice ||
       item.original_line_price ||
+      item.original_unit_price ||
+      item.discounted_unit_price ||
+      item.originalUnitPrice ||
+      item.discountedUnitPrice ||
       item.originalUnitPriceSet?.shopMoney?.amount ||
       item.discountedUnitPriceSet?.shopMoney?.amount,
   );
-  const currentPrice = number(item.current_price || item.currentPrice || item.variant?.price || item.product?.price);
-  const cost = nullableNumber(item.cost || item.rate_sheet_cost || item.landed_cost || item.unit_cost || item.product_cost);
-  const inventory = number(item.inventory_quantity || item.inventoryQuantity || item.variant?.inventory_quantity || item.available);
+  const currentPrice = number(item.current_price || item.currentPrice || item.variant_price || item.variant?.price || item.product?.price);
+  const cost = nullableNumber(item.cost || item.rate_sheet_cost || item.rateSheetCost || item.landed_cost || item.unit_cost || item.product_cost);
+  const inventory = number(
+    item.inventory ??
+      item.inventory_quantity ??
+      item.inventoryQuantity ??
+      item.inventory_available_qty ??
+      item.inventoryAvailableQty ??
+      item.inventory_on_hand_qty ??
+      item.inventoryOnHandQty ??
+      item.variant?.inventory_quantity ??
+      item.available,
+  );
   const productUrl = text(item.product_url || item.productUrl || item.url || "");
   return addMarginFields({ title, sku, quantity, checkoutPrice, currentPrice, cost, inventory, productUrl });
 }
@@ -1111,6 +1157,12 @@ function booleanValue(value) {
   return ["true", "1", "yes", "y"].includes(text(value).toLowerCase());
 }
 
+function isCurrentYearDraft(draft, year) {
+  const timestamp = Date.parse(draft.createdAt || "");
+  if (!Number.isFinite(timestamp)) return false;
+  return new Date(timestamp).getFullYear() === year;
+}
+
 function buildSummary(leads) {
   const byMarket = {};
   const bySales = {};
@@ -1219,6 +1271,7 @@ async function handleSaveAssignment(req) {
   const previous = assignments[key] || {};
   const now = new Date().toISOString();
   const leadStatus = normalizeLeadStatus(body.leadStatus || body.salesStatus || previous.leadStatus || previous.salesStatus || "Valid");
+  const notes = text(body.notes || body.sales_notes || body.salesNotes);
   assignments[key] = {
     ...previous,
     id,
@@ -1227,7 +1280,7 @@ async function handleSaveAssignment(req) {
     sales: text(body.sales),
     leadStatus,
     salesStatus: leadStatus,
-    notes: text(body.notes),
+    notes,
     funnelStatus: text(body.funnelStatus || previous.funnelStatus || ""),
     manualStatus: text(body.manualStatus || previous.manualStatus || ""),
     manualNotes: text(body.manualNotes || previous.manualNotes || ""),
@@ -1241,10 +1294,12 @@ async function handleSaveAssignment(req) {
   assignments[key].dataHubSyncedAt = syncResult.syncedAt || assignments[key].dataHubSyncedAt || "";
   assignments[key].dataHubSyncError = syncResult.error || "";
   writeAssignments(assignments);
-  return jsonResponse(200, {
+  const statusCode = syncResult.error ? 502 : 200;
+  return jsonResponse(statusCode, {
     ok: true,
     assignment: assignments[key],
     dataHubSynced: Boolean(syncResult.syncedAt),
+    error: syncResult.error || "",
     dataHubSyncError: syncResult.error || "",
   });
 }
@@ -1267,6 +1322,7 @@ async function syncAssignmentToDataHub(assignment, requestBody) {
     assigned_sales: assignment.sales,
     lead_status: assignment.leadStatus,
     sales_notes: assignment.notes,
+    notes: assignment.notes,
     assigned_at: assignment.assignedAt || null,
     updated_at: assignment.updatedAt,
     updated_by: text(requestBody.updatedBy || requestBody.updated_by || requestBody.userEmail || ""),

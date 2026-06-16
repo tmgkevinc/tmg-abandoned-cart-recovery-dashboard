@@ -148,7 +148,8 @@ async function initialize() {
 }
 
 async function loadAllData() {
-  await loadLeads();
+  state.leads = [];
+  renderRulesFunnel();
   await loadDrafts();
 }
 
@@ -299,7 +300,7 @@ async function loadLeads() {
 
 async function loadDrafts() {
   try {
-    const response = await fetch("/api/drafts?market=US,CA,AU&limit=50000", { cache: "no-store" });
+    const response = await fetch("/api/drafts?market=US,CA,AU&limit=3000", { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Could not load drafts.");
     state.drafts = data.drafts || [];
@@ -432,58 +433,53 @@ function renderDraftSummary(summary) {
 }
 
 function renderRulesFunnel() {
-  const counts = getFunnelCounts(state.leads);
+  const counts = getDraftFunnelCounts(state.drafts || []);
   const readyRate = counts.all ? Math.round((counts.ready / counts.all) * 100) : 0;
+  const currentYear = new Date().getFullYear();
   const steps = [
     {
-      label: "All abandoned carts",
+      label: "Current year only",
       count: counts.all,
       countType: "total",
-      rule: "Loaded from Data Hub table shopify_abandoned_checkouts_raw for US, CA, and AU.",
-      outcome: "Starting population before lead qualification.",
+      rule: `Only draft orders created in ${currentYear} enter this dashboard. Older historical drafts are excluded before every other gate.`,
+      outcome: "This keeps the high shipping recovery queue focused on current-year opportunities.",
     },
     {
-      label: "Age gate",
-      count: counts.tooNew,
-      rule: "Checkout must be older than 72 hours. Leads within 72 hours stay Invalid until they age in.",
-      outcome: "Filtered status: Too New.",
+      label: "Not completed gate",
+      count: counts.completed,
+      rule: "Draft status must be not completed. Completed drafts are not recovery opportunities.",
+      outcome: "Filtered status: Completed.",
     },
     {
-      label: "Phone gate",
-      count: counts.noContact,
-      rule: "Lead must have checkout phone. Checkout email is not required. Leads older than 30 days remain Valid when they pass the other gates.",
-      outcome: "Filtered status: No Phone.",
-    },
-    {
-      label: "Duplicate gate",
-      count: counts.duplicate,
-      rule: "For the same customer name and same product set, keep only the newest checkout.",
-      outcome: "Filtered status: Duplicate.",
-    },
-    {
-      label: "Recovered gate",
-      count: counts.recovered,
-      rule: "Current matching is done upstream by Data Hub, not inside this page. This dashboard treats a checkout as recovered when the enriched abandoned-cart record includes completed/order/recovered signals such as completed_at, order_id, or is_recovered. If Data Hub provides a recovered order number, it is shown in Leads notes.",
-      outcome: "If a lead was assigned before the recovered order was created, it becomes Recovered by Sales for that assigned sales rep. Otherwise it is Recovered Auto, unless Data Hub provides a sales-tag owner.",
+      label: "Manual shipping gate",
+      count: counts.noManualShipping,
+      rule: "Draft must include a manually added shipping line. This is the signal for high shipping not completed review.",
+      outcome: "Filtered status: No Manual Shipping.",
     },
     {
       label: "Inventory gate",
       count: counts.noInventory,
-      rule: "Lead is removed only when all non-PP/PSP/surcharge products in the cart have no inventory.",
-      outcome: "Filtered status: No Inventory.",
+      rule: "Draft is blocked only when none of the visible product lines has usable inventory.",
+      outcome: "Filtered status: Needs Review.",
+    },
+    {
+      label: "Margin cost check",
+      count: 0,
+      rule: "Estimated cost and margin are displayed from Data Hub rate sheet cost data.",
+      outcome: "This check is visible for review but is not currently used to remove drafts.",
     },
     {
       label: "Valid before manual review",
-      count: counts.afterInventory,
+      count: counts.ready,
       countType: "total",
-      rule: "Leads that pass the automated Data Hub gates become valid follow-up candidates.",
-      outcome: "Manual review can still remove leads that are not useful for sales follow-up.",
+      rule: "Current-year, not-completed drafts with manual shipping and inventory become valid follow-up candidates.",
+      outcome: "Manual review can still remove drafts that are not useful for recovery.",
     },
     {
       label: "Manually marked gate",
       count: counts.manualMarked,
-      rule: "Manual judgement can remove spam, not interested leads, internal test checkouts, or other leads that sales/admin decides should not be followed up.",
-      outcome: `${counts.manualMarked.toLocaleString()} leads are currently recorded under Manually Marked.`,
+      rule: "Manual judgement can remove test drafts, bad opportunities, already handled cases, or other drafts that should not be followed up.",
+      outcome: `${counts.manualMarked.toLocaleString()} drafts are currently recorded under Manually Marked.`,
     },
   ];
 
@@ -498,17 +494,17 @@ function renderRulesFunnel() {
   ];
 
   const statusRules = [
-    ["Valid", "Effective lead for sales follow-up."],
-    ["Invalid", "Lead does not qualify, or sales manually marked it as not useful."],
-    ["Recovered Auto", "Shopify/Data Hub shows a recovered order, but there was no earlier sales assignment tied to that checkout."],
-    ["Recovered by Sales", "The checkout was assigned before the recovered order was created, or Data Hub provides a sales-tag owner."],
+    ["Valid", "Effective draft for sales follow-up."],
+    ["Invalid", "Draft does not qualify, or sales/admin manually marked it as not useful."],
+    ["Recovered Auto", "A completed order match exists, but there was no earlier sales assignment tied to that draft."],
+    ["Recovered by Sales", "The draft was assigned before the recovered order was created, or Data Hub provides a sales-tag owner."],
   ];
 
   els.rulesFunnel.innerHTML = `
     <div class="rules-summary">
-      <article><span>Total loaded</span><strong>${counts.all.toLocaleString()}</strong></article>
-      <article><span>Ready</span><strong>${counts.ready.toLocaleString()}</strong></article>
-      <article><span>Invalid or filtered</span><strong>${(counts.all - counts.ready).toLocaleString()}</strong></article>
+      <article><span>Current-year drafts</span><strong>${counts.all.toLocaleString()}</strong></article>
+      <article><span>Valid drafts</span><strong>${counts.ready.toLocaleString()}</strong></article>
+      <article><span>Invalid or review</span><strong>${(counts.all - counts.ready).toLocaleString()}</strong></article>
       <article><span>Ready rate</span><strong>${readyRate}%</strong></article>
     </div>
     <div class="funnel-steps">
@@ -534,9 +530,9 @@ function renderRulesFunnel() {
       ${renderRuleGroup("Grade Rules", gradeRules)}
       ${renderRuleGroup("Lead Status Rules", statusRules)}
       ${renderRuleGroup("Assignment Rules", [
-        ["Manual only", "Leads stay unassigned until a user selects a sales owner."],
-        ["No auto assignment", "Time zone and market are shown for review, but they do not assign leads automatically."],
-        ["Storage", "Assignments and notes are saved by the local dashboard service until Data Hub write access is available."],
+        ["Manual only", "Drafts stay unassigned until a user selects a sales owner."],
+        ["No auto assignment", "Time zone, market, shipping, cost, and margin are shown for review, but they do not assign drafts automatically."],
+        ["Storage", "Assignments and notes are saved by the dashboard service."],
       ])}
     </div>
   `;
@@ -562,7 +558,7 @@ function renderRuleGroup(title, rows) {
 
 function formatFunnelStepCount(step) {
   const count = Number(step.count || 0);
-  const label = `${Math.abs(count).toLocaleString()} leads`;
+  const label = `${Math.abs(count).toLocaleString()} drafts`;
   return step.countType === "total" ? label : `-${label}`;
 }
 
@@ -595,6 +591,27 @@ function getFunnelCounts(leads) {
   counts.afterRecovered = counts.afterDuplicate - counts.recovered;
   counts.afterInventory = counts.afterRecovered - counts.noInventory;
   counts.afterManual = counts.afterInventory - counts.manualMarked;
+  return counts;
+}
+
+function getDraftFunnelCounts(drafts) {
+  const counts = {
+    all: drafts.length,
+    completed: 0,
+    noManualShipping: 0,
+    noInventory: 0,
+    manualMarked: 0,
+    ready: 0,
+  };
+
+  for (const draft of drafts) {
+    if (draft.completed) counts.completed += 1;
+    if (!draft.hasManualShipping) counts.noManualShipping += 1;
+    if (draft.funnelStatus === "Needs Review") counts.noInventory += 1;
+    if (draft.leadStatus !== "Valid" && draft.funnelStatus !== "Needs Review") counts.manualMarked += 1;
+    if (draft.leadStatus === "Valid") counts.ready += 1;
+  }
+
   return counts;
 }
 
@@ -735,13 +752,12 @@ function renderTableHeads() {
     "Sales",
     "Leads notes",
     "Created At Date",
-    "Draft Status",
+    "Shopify Draft Status",
     "Subtotal",
-    "Total",
     "Estimated Cost",
-    "Margin",
-    "Margin %",
-    "Manual Shipping",
+    "Shipping",
+    "Margin without shipping",
+    "Margin with shipping",
     "Customer",
     "Phone",
     "Email",
@@ -816,7 +832,12 @@ function renderLeadRow(lead) {
           ${state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}" ${lead.assignedSales === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
         </select>
       </td>
-      <td><textarea data-field="notes" placeholder="Leads notes">${escapeHtml(getLeadNotes(lead))}</textarea></td>
+      <td>
+        <div class="notes-cell">
+          <textarea data-field="notes" placeholder="Leads notes">${escapeHtml(getLeadNotes(lead))}</textarea>
+          <button class="notes-submit-button" type="button" data-action="submit-notes">Submit</button>
+        </div>
+      </td>
       ${cell(formatCreatedAtWithAge(lead))}
       ${cell(formatMoney(lead.subtotal, lead.currency))}
       ${cell(lead.shippingName)}
@@ -876,15 +897,19 @@ function renderDraftRow(draft) {
           ${state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}" ${draft.assignedSales === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
         </select>
       </td>
-      <td><textarea data-field="notes" placeholder="Leads notes">${escapeHtml(getLeadNotes(draft))}</textarea></td>
+      <td>
+        <div class="notes-cell">
+          <textarea data-field="notes" placeholder="Leads notes">${escapeHtml(getLeadNotes(draft))}</textarea>
+          <button class="notes-submit-button" type="button" data-action="submit-notes">Submit</button>
+        </div>
+      </td>
       ${cell(formatCreatedAtWithAge(draft))}
       ${cell(draft.draftStatus)}
       ${cell(formatMoney(draft.subtotal, draft.currency))}
-      ${cell(formatMoney(draft.total || draft.subtotal, draft.currency))}
       ${cell(formatOptionalMoney(draft.totalCost, draft.currency))}
-      ${cell(formatOptionalMoney(draft.margin, draft.currency))}
-      ${cell(formatOptionalPercent(draft.marginPercent))}
-      ${cell(`${draft.manualShippingTitle || "Manual shipping"} ${formatMoney(draft.manualShippingPrice || 0, draft.currency)}`)}
+      ${cell(formatMoney(draft.manualShippingPrice || 0, draft.currency))}
+      ${cell(formatOptionalMoney(draft.marginWithoutShipping ?? draft.margin, draft.currency))}
+      ${cell(formatOptionalMoney(draft.marginWithShipping, draft.currency))}
       ${cell(draft.name)}
       ${cell(draft.checkoutPhone)}
       ${cell(draft.checkoutEmail)}
@@ -911,6 +936,22 @@ function handleLeadInput(event) {
 }
 
 async function handleLeadClick(event) {
+  const submitNotesButton = event.target.closest("[data-action='submit-notes']");
+  if (submitNotesButton) {
+    const row = submitNotesButton.closest("tr");
+    const notesControl = row ? row.querySelector('[data-field="notes"]') : null;
+    if (!notesControl) return;
+    clearTimeout(notesControl._saveTimer);
+    submitNotesButton.disabled = true;
+    try {
+      await saveRowFromControl(notesControl);
+      showTemporaryButtonText(submitNotesButton, "Saved");
+    } finally {
+      submitNotesButton.disabled = false;
+    }
+    return;
+  }
+
   const button = event.target.closest("[data-action='copy-row']");
   if (!button) return;
   const row = button.closest("tr");
@@ -934,6 +975,8 @@ async function saveRowFromControl(control) {
   const row = control.closest("tr");
   const lead = findLead(row.dataset.market, row.dataset.id);
   if (!lead) return;
+  const changedField = control.dataset.field || "";
+  const notes = getRowField(row, "notes");
   const payload = {
     id: lead.id,
     market: lead.market,
@@ -942,7 +985,8 @@ async function saveRowFromControl(control) {
     sales: getRowField(row, "sales"),
     leadStatus: getRowField(row, "leadStatus"),
     salesStatus: getRowField(row, "leadStatus"),
-    notes: getRowField(row, "notes"),
+    notes,
+    sales_notes: notes,
     updatedBy: state.authEmail || state.user || "",
   };
   try {
@@ -953,6 +997,7 @@ async function saveRowFromControl(control) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || data.error || "Save failed");
+    if (data.dataHubSyncError) throw new Error(data.dataHubSyncError);
     Object.assign(lead, {
       assignedSales: data.assignment.sales || "",
       leadStatus: data.assignment.leadStatus || data.assignment.salesStatus || "Valid",
@@ -961,7 +1006,7 @@ async function saveRowFromControl(control) {
       assignedAt: data.assignment.assignedAt || "",
       lastWorklogAt: data.assignment.updatedAt || "",
     });
-    applyFilters();
+    if (changedField !== "notes") applyFilters();
   } catch (error) {
     alert(error.message);
   }
@@ -1033,13 +1078,12 @@ function getDraftExportHeaders() {
     "Sales",
     "Leads notes",
     "Created At Date",
-    "Draft Status",
+    "Shopify Draft Status",
     "Subtotal",
-    "Total",
     "Estimated Cost",
-    "Margin",
-    "Margin %",
-    "Manual Shipping",
+    "Shipping",
+    "Margin without shipping",
+    "Margin with shipping",
     "Customer",
     "Phone",
     "Email",
@@ -1105,11 +1149,10 @@ function getDraftExportValues(draft) {
     formatCreatedAtWithAge(draft),
     draft.draftStatus,
     draft.subtotal,
-    draft.total || draft.subtotal,
     draft.totalCost ?? "",
-    draft.margin ?? "",
-    draft.marginPercent === null || draft.marginPercent === undefined ? "" : `${Math.round(draft.marginPercent * 1000) / 10}%`,
-    `${draft.manualShippingTitle || "Manual shipping"} ${draft.manualShippingPrice || 0}`,
+    draft.manualShippingPrice || 0,
+    draft.marginWithoutShipping ?? draft.margin ?? "",
+    draft.marginWithShipping ?? "",
     draft.name,
     draft.checkoutPhone,
     draft.checkoutEmail,

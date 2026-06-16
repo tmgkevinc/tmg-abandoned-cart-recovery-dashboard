@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "tmg-abandoned-cart-recovery-dashboard",
+  "name": "high-shipping-no-completed-dashboard",
   "main": "src/index.js",
   "compatibility_date": "2026-06-10",
   "assets": {
@@ -14,13 +14,5 @@
     "SALES_EMAIL_MAP": "michael.g@tmgindustrial.com=Michael;brian.r@tmgindustrial.com=Brian;brian.l@tmgindustrial.com=Steven;adam.g@tmgindustrial.com=Adam;johnny.c@tmgindustrial.com=Johnny;josh.a@tmgindustrial.com=Josh;arsenio.b@tmgindustrial.com=Arsenio",
     "DATA_HUB_ASSIGNMENTS_WRITE_PATH": "/api/data-hub/lead-assignments/upsert",
     "DATA_HUB_ASSIGNMENTS_READ_PATH": "/api/data-hub/reports/lead-assignments"
-  },
-  "migrations": [
-    {
-      "tag": "v2-remove-container-class",
-      "deleted_classes": [
-        "DashboardContainer"
-      ]
-    }
-  ]
+  }
 }
