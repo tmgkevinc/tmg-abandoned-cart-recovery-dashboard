@@ -15,17 +15,11 @@ const els = {
   leadStatusFilter: document.querySelector("#leadStatusFilter"),
   gradeFilter: document.querySelector("#gradeFilter"),
   salesFilter: document.querySelector("#salesFilter"),
-  relatedSalesFilter: document.querySelector("#relatedSalesFilter"),
-  subtotalMinFilter: document.querySelector("#subtotalMinFilter"),
-  subtotalMaxFilter: document.querySelector("#subtotalMaxFilter"),
   searchInput: document.querySelector("#searchInput"),
   salesMarketFilter: document.querySelector("#salesMarketFilter"),
   salesLeadStatusFilter: document.querySelector("#salesLeadStatusFilter"),
   salesGradeFilter: document.querySelector("#salesGradeFilter"),
   salesDetailSalesFilter: document.querySelector("#salesDetailSalesFilter"),
-  salesRelatedSalesFilter: document.querySelector("#salesRelatedSalesFilter"),
-  salesSubtotalMinFilter: document.querySelector("#salesSubtotalMinFilter"),
-  salesSubtotalMaxFilter: document.querySelector("#salesSubtotalMaxFilter"),
   salesSearchInput: document.querySelector("#salesSearchInput"),
   draftMarketFilter: document.querySelector("#draftMarketFilter"),
   draftLeadStatusFilter: document.querySelector("#draftLeadStatusFilter"),
@@ -75,7 +69,7 @@ const baseColumns = [
   "Klaviyo Text Subscribed",
   "Klaviyo Maximum Discount",
 ];
-const trailingLeadColumns = ["Related Sales", "Recovered By"];
+const trailingLeadColumns = ["Related Sales", "Related Order", "Related Order Date", "Recovered By", "Recovered Order", "Recovered Order Date"];
 
 let state = {
   user: null,
@@ -113,16 +107,7 @@ els.exportSalesTabsButton.addEventListener("click", () => exportCsv(state.salesV
 els.exportDraftButton.addEventListener("click", () => exportCsv(state.visibleDrafts, "draft-recovery-leads"));
 els.tabButtons.forEach((button) => button.addEventListener("click", () => setActiveTab(button.dataset.tab)));
 
-for (const control of [
-  els.marketFilter,
-  els.leadStatusFilter,
-  els.gradeFilter,
-  els.salesFilter,
-  els.relatedSalesFilter,
-  els.subtotalMinFilter,
-  els.subtotalMaxFilter,
-  els.searchInput,
-]) {
+for (const control of [els.marketFilter, els.leadStatusFilter, els.gradeFilter, els.salesFilter, els.searchInput]) {
   control.addEventListener("input", applyFilters);
 }
 
@@ -131,9 +116,6 @@ for (const control of [
   els.salesLeadStatusFilter,
   els.salesGradeFilter,
   els.salesDetailSalesFilter,
-  els.salesRelatedSalesFilter,
-  els.salesSubtotalMinFilter,
-  els.salesSubtotalMaxFilter,
   els.salesSearchInput,
 ]) {
   control.addEventListener("input", applyFilters);
@@ -249,7 +231,6 @@ async function loadHealth() {
     els.loginStatus.textContent = health.dataHubConfigured
       ? "Data Hub connection is configured."
       : "Data Hub environment variables are missing on the dashboard server.";
-    renderUserMode();
   } catch (error) {
     els.loginStatus.textContent = "Local dashboard server is not responding.";
   }
@@ -292,28 +273,19 @@ async function loadLeads() {
   els.refreshButton.disabled = true;
   els.refreshButton.textContent = "Loading...";
   try {
-    const marketResponses = [];
-    const marketErrors = [];
-    for (const market of markets) {
-      els.refreshButton.textContent = `Loading ${market}...`;
-      try {
-        marketResponses.push(await fetchLeadsForMarket(market));
-        applyLeadData(
-          mergeLeadResponses(marketResponses),
-          `Loaded ${marketResponses.map((data) => data.markets?.[0]).filter(Boolean).join(", ")} leads. Still checking remaining stores...`,
-        );
-      } catch (error) {
-        marketErrors.push(`${market}: ${error.message}`);
-      }
-    }
-    if (!marketResponses.length) throw new Error(marketErrors.join(" | ") || "Could not load leads.");
-    const data = mergeLeadResponses(marketResponses);
-    applyLeadData(
-      data,
-      marketErrors.length
-        ? `${data.leads.length.toLocaleString()} abandoned cart leads loaded. Failed stores: ${marketErrors.join(" | ")}`
-        : `${data.leads.length.toLocaleString()} abandoned cart leads loaded from Data Hub.`,
-    );
+    const response = await fetch("/api/leads?market=US,CA,AU&limit=5000&all=1", { cache: "no-store" });
+    const contentType = response.headers.get("content-type") || "";
+    const data = contentType.includes("application/json")
+      ? await response.json()
+      : { error: `Dashboard API returned ${response.status} ${response.statusText || ""} instead of JSON.` };
+    if (!response.ok) throw new Error(data.error || "Could not load leads.");
+    state.salesUsers = data.salesUsers || state.salesUsers;
+    state.leads = data.leads || [];
+    populateGradeFilter(state.leads);
+    renderSummary(data.summary || {});
+    renderRulesFunnel();
+    applyFilters();
+    els.qualifiedSubtitle.textContent = `${state.leads.length.toLocaleString()} abandoned cart leads loaded from Data Hub.`;
   } catch (error) {
     state.leads = [];
     renderRulesFunnel();
@@ -323,86 +295,6 @@ async function loadLeads() {
     els.refreshButton.disabled = false;
     els.refreshButton.textContent = "Refresh Data Hub";
   }
-}
-
-function applyLeadData(data, subtitle) {
-  state.salesUsers = data.salesUsers || state.salesUsers;
-  state.leads = data.leads || [];
-  populateGradeFilter(state.leads);
-  populateRelatedSalesFilter(state.leads);
-  renderSummary(data.summary || {});
-  renderRulesFunnel();
-  applyFilters();
-  els.qualifiedSubtitle.textContent = subtitle;
-}
-
-async function fetchLeadsForMarket(market) {
-  const response = await fetch(`/api/leads?market=${encodeURIComponent(market)}&limit=5000&all=1`, { cache: "no-store" });
-  const contentType = response.headers.get("content-type") || "";
-  const data = contentType.includes("application/json")
-    ? await response.json()
-    : { error: `Dashboard API returned ${response.status} ${response.statusText || ""} instead of JSON while loading ${market}.` };
-  if (!response.ok) throw new Error(data.error || `Could not load ${market} leads.`);
-  return data;
-}
-
-function mergeLeadResponses(responses) {
-  return responses.reduce((merged, data) => {
-    merged.leads.push(...(data.leads || []));
-    merged.salesUsers = mergeUnique(merged.salesUsers, data.salesUsers || []);
-    merged.summary = mergeSummaries(merged.summary, data.summary || {});
-    return merged;
-  }, { leads: [], salesUsers: [], summary: { byMarket: {}, latestCreatedAt: {}, bySales: {} } });
-}
-
-function mergeSummaries(base, next) {
-  const merged = {
-    ...base,
-    byMarket: { ...(base.byMarket || {}) },
-    latestCreatedAt: { ...(base.latestCreatedAt || {}) },
-    bySales: { ...(base.bySales || {}) },
-  };
-
-  for (const [market, item] of Object.entries(next.byMarket || {})) {
-    const current = merged.byMarket[market] || {};
-    merged.byMarket[market] = mergeNumericObject(current, item);
-    merged.byMarket[market].ageBuckets = mergeNumericObject(current.ageBuckets || {}, item.ageBuckets || {});
-  }
-
-  for (const [market, value] of Object.entries(next.latestCreatedAt || {})) {
-    if (!merged.latestCreatedAt[market] || new Date(value) > new Date(merged.latestCreatedAt[market])) {
-      merged.latestCreatedAt[market] = value;
-    }
-  }
-
-  for (const [sales, item] of Object.entries(next.bySales || {})) {
-    const current = merged.bySales[sales] || {};
-    const row = mergeNumericObject(current, item);
-    row.lastAssignedAt = getLatestTimestamp(current.lastAssignedAt, item.lastAssignedAt);
-    merged.bySales[sales] = row;
-  }
-
-  return merged;
-}
-
-function mergeNumericObject(base, next) {
-  const merged = { ...base };
-  for (const [key, value] of Object.entries(next || {})) {
-    if (key === "lastAssignedAt" || key === "ageBuckets") continue;
-    if (typeof value === "number") merged[key] = Number(merged[key] || 0) + value;
-    else if (merged[key] === undefined) merged[key] = value;
-  }
-  return merged;
-}
-
-function getLatestTimestamp(a, b) {
-  if (!a) return b || "";
-  if (!b) return a || "";
-  return new Date(b) > new Date(a) ? b : a;
-}
-
-function mergeUnique(base, next) {
-  return [...new Set([...(base || []), ...(next || [])])];
 }
 
 async function loadDrafts() {
@@ -444,8 +336,8 @@ function renderUserMode() {
   }
   if (state.role === "sales" && state.user !== "Admin") {
     setActiveTab("workspace");
-    els.salesFilter.value = "ALL";
-    els.salesFilter.disabled = false;
+    els.salesFilter.value = state.user;
+    els.salesFilter.disabled = true;
     els.salesDetailSalesFilter.value = state.user;
     els.salesDetailSalesFilter.disabled = true;
     els.draftSalesFilter.value = state.user;
@@ -461,18 +353,6 @@ function populateGradeFilter(leads) {
   const grades = [...new Set(leads.map((lead) => lead.grade).filter(Boolean))].sort((a, b) => gradeRank(a) - gradeRank(b));
   els.gradeFilter.innerHTML = [`<option value="ALL">All grades</option>`, ...grades.map((grade) => `<option value="${grade}">${grade}</option>`)].join("");
   els.salesGradeFilter.innerHTML = [`<option value="ALL">All grades</option>`, ...grades.map((grade) => `<option value="${grade}">${grade}</option>`)].join("");
-}
-
-function populateRelatedSalesFilter(leads) {
-  const relatedSales = [...new Set(leads.map((lead) => lead.relatedSales).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  const options = [
-    `<option value="ALL">All related sales</option>`,
-    `<option value="HAS">Has related sales</option>`,
-    `<option value="NONE">No related sales</option>`,
-    ...relatedSales.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
-  ].join("");
-  els.relatedSalesFilter.innerHTML = options;
-  els.salesRelatedSalesFilter.innerHTML = options;
 }
 
 function renderSummary(summary) {
@@ -511,7 +391,7 @@ function renderSummary(summary) {
     })
     .join("");
 
-  const bySales = getActiveAssignedSalesSummary(state.leads);
+  const bySales = summary.bySales || {};
   const recoveredBySales = getRecoveredBySalesSummary(state.leads);
   els.salesOverview.innerHTML = state.salesUsers
     .filter((name) => name !== "Non-sales")
@@ -584,14 +464,7 @@ function renderRulesFunnel() {
       label: "Recovered gate",
       count: counts.recovered,
       rule: "Current matching is done upstream by Data Hub, not inside this page. This dashboard treats a checkout as recovered when the enriched abandoned-cart record includes completed/order/recovered signals such as completed_at, order_id, or is_recovered. If Data Hub provides a recovered order number, it is shown in Leads notes.",
-      outcome: "If a lead was assigned before the recovered order was created, it becomes Recovered by Sales for that assigned sales rep. Otherwise it is Recovered Auto.",
-    },
-    {
-      label: "Related sales rule",
-      count: 0,
-      countType: "info",
-      rule: "Related Sales is tied only to historical Shopify orders. Draft orders are ignored. If more than one historical order matches the customer, the earliest order's sales tag is used.",
-      outcome: "This is only relationship context for assignment priority, not recovery ownership.",
+      outcome: "If a lead was assigned before the recovered order was created, it becomes Recovered by Sales for that assigned sales rep. Otherwise it is Recovered Auto, unless Data Hub provides a sales-tag owner.",
     },
     {
       label: "Inventory gate",
@@ -628,7 +501,7 @@ function renderRulesFunnel() {
     ["Valid", "Effective lead for sales follow-up."],
     ["Invalid", "Lead does not qualify, or sales manually marked it as not useful."],
     ["Recovered Auto", "Shopify/Data Hub shows a recovered order, but there was no earlier sales assignment tied to that checkout."],
-    ["Recovered by Sales", "The checkout was assigned to a sales rep before the recovered order was created."],
+    ["Recovered by Sales", "The checkout was assigned before the recovered order was created, or Data Hub provides a sales-tag owner."],
   ];
 
   els.rulesFunnel.innerHTML = `
@@ -647,7 +520,7 @@ function renderRulesFunnel() {
               <div>
                 <div class="step-title">
                   <strong>${escapeHtml(step.label)}</strong>
-                  <span class="${step.countType === "total" || step.countType === "info" ? "" : "funnel-removal-count"}">${formatFunnelStepCount(step)}</span>
+                  <span class="${step.countType === "total" ? "" : "funnel-removal-count"}">${formatFunnelStepCount(step)}</span>
                 </div>
                 <p>${escapeHtml(step.rule)}</p>
                 <small>${escapeHtml(step.outcome)}</small>
@@ -688,7 +561,6 @@ function renderRuleGroup(title, rows) {
 }
 
 function formatFunnelStepCount(step) {
-  if (step.countType === "info") return "Rule";
   const count = Number(step.count || 0);
   const label = `${Math.abs(count).toLocaleString()} leads`;
   return step.countType === "total" ? label : `-${label}`;
@@ -731,17 +603,11 @@ function applyFilters() {
   const leadStatus = els.leadStatusFilter.value;
   const grade = els.gradeFilter.value;
   const sales = els.salesFilter.value;
-  const relatedSales = els.relatedSalesFilter.value;
-  const subtotalMin = parseMoneyFilter(els.subtotalMinFilter.value);
-  const subtotalMax = parseMoneyFilter(els.subtotalMaxFilter.value);
   const query = els.searchInput.value.trim().toLowerCase();
   const salesMarket = els.salesMarketFilter.value;
   const salesLeadStatus = els.salesLeadStatusFilter.value;
   const salesGrade = els.salesGradeFilter.value;
   const salesDetailSales = els.salesDetailSalesFilter.value;
-  const salesRelatedSales = els.salesRelatedSalesFilter.value;
-  const salesSubtotalMin = parseMoneyFilter(els.salesSubtotalMinFilter.value);
-  const salesSubtotalMax = parseMoneyFilter(els.salesSubtotalMaxFilter.value);
   const salesQuery = els.salesSearchInput.value.trim().toLowerCase();
   const draftMarket = els.draftMarketFilter.value;
   const draftLeadStatus = els.draftLeadStatusFilter.value;
@@ -753,8 +619,7 @@ function applyFilters() {
     if (leadStatus !== "ALL" && getLeadStatus(lead) !== leadStatus) return false;
     if (grade !== "ALL" && lead.grade !== grade) return false;
     if (sales !== "ALL" && (lead.assignedSales || "") !== sales) return false;
-    if (!passesRelatedSalesFilter(lead, relatedSales)) return false;
-    if (!passesSubtotalFilter(lead, subtotalMin, subtotalMax)) return false;
+    if (state.role === "sales" && state.user !== "Admin" && lead.assignedSales !== state.user) return false;
     if (!query) return true;
     return searchBlob(lead).includes(query);
   }).sort(sortBySubtotalDesc);
@@ -762,12 +627,10 @@ function applyFilters() {
   state.salesVisibleLeads = state.leads
     .filter((lead) => lead.assignedSales && lead.funnelStatus !== "Recovered")
     .filter((lead) => (state.role === "sales" && state.user !== "Admin" ? lead.assignedSales === state.user : true))
-    .filter((lead) => (salesDetailSales && salesDetailSales !== "ALL" ? (lead.assignedSales || "") === salesDetailSales : true))
+    .filter((lead) => (salesDetailSales !== "ALL" ? (lead.assignedSales || "") === salesDetailSales : true))
     .filter((lead) => (salesMarket !== "ALL" ? lead.market === salesMarket : true))
     .filter((lead) => (salesLeadStatus !== "ALL" ? getLeadStatus(lead) === salesLeadStatus : true))
     .filter((lead) => (salesGrade !== "ALL" ? lead.grade === salesGrade : true))
-    .filter((lead) => passesRelatedSalesFilter(lead, salesRelatedSales))
-    .filter((lead) => passesSubtotalFilter(lead, salesSubtotalMin, salesSubtotalMax))
     .filter((lead) => (salesQuery ? searchBlob(lead).includes(salesQuery) : true))
     .sort(sortByGradeThenDate);
 
@@ -783,28 +646,6 @@ function applyFilters() {
   renderLeadRows();
   renderSalesRows();
   renderDraftRows();
-}
-
-function parseMoneyFilter(value) {
-  const cleaned = String(value ?? "").replace(/[$,]/g, "").trim();
-  if (!cleaned) return null;
-  const number = Number(cleaned);
-  return Number.isFinite(number) && number >= 0 ? number : null;
-}
-
-function passesSubtotalFilter(lead, min, max) {
-  const subtotal = Number(lead.subtotal || 0);
-  if (min !== null && subtotal < min) return false;
-  if (max !== null && subtotal > max) return false;
-  return true;
-}
-
-function passesRelatedSalesFilter(lead, filterValue) {
-  const relatedSales = lead.relatedSales || "";
-  if (filterValue === "ALL") return true;
-  if (filterValue === "HAS") return Boolean(relatedSales);
-  if (filterValue === "NONE") return !relatedSales;
-  return relatedSales === filterValue;
 }
 
 function renderSalesPersonalSummary() {
@@ -851,18 +692,6 @@ function getRecoveredBySalesSummary(leads) {
     summary[salesName].count += 1;
     summary[salesName].amountsByMarket[lead.market] =
       (summary[salesName].amountsByMarket[lead.market] || 0) + Number(lead.subtotal || 0);
-    return summary;
-  }, {});
-}
-
-function getActiveAssignedSalesSummary(leads) {
-  return leads.reduce((summary, lead) => {
-    const sales = lead.assignedSales || "";
-    if (!sales || getLeadStatus(lead) !== "Valid" || lead.funnelStatus === "Recovered") return summary;
-    summary[sales] ||= { US: 0, CA: 0, AU: 0, total: 0, lastAssignedAt: "" };
-    summary[sales][lead.market] = Number(summary[sales][lead.market] || 0) + 1;
-    summary[sales].total += 1;
-    summary[sales].lastAssignedAt = getLatestTimestamp(summary[sales].lastAssignedAt, lead.assignedAt);
     return summary;
   }, {});
 }
@@ -1002,7 +831,11 @@ function renderLeadRow(lead) {
       ${cell(formatMoney(lead.klaviyoMaximumDiscount, lead.currency))}
       ${productCells.join("")}
       ${cell(lead.relatedSales)}
+      ${cell(lead.relatedOrderNumber)}
+      ${cell(formatDateTime(lead.relatedOrderCreatedAt))}
       ${cell(getRecoveredByValue(lead))}
+      ${cell(lead.recoveredOrderNumber)}
+      ${cell(formatDateTime(lead.recoveredOrderCreatedAt))}
     </tr>
   `;
 }
@@ -1243,7 +1076,14 @@ function getExportValues(lead) {
     const item = lead.lineItems[i] || {};
     values.push(item.title || "", item.sku || "", item.checkoutPrice || "", item.currentPrice || "", item.inventory ?? "", item.productUrl || "");
   }
-  values.push(lead.relatedSales, getRecoveredByValue(lead));
+  values.push(
+    lead.relatedSales,
+    lead.relatedOrderNumber,
+    formatDateTime(lead.relatedOrderCreatedAt),
+    getRecoveredByValue(lead),
+    lead.recoveredOrderNumber,
+    formatDateTime(lead.recoveredOrderCreatedAt),
+  );
   return values;
 }
 
