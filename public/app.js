@@ -31,6 +31,12 @@ const els = {
   leadTableHead: document.querySelector("#leadTableHead"),
   leadTableBody: document.querySelector("#leadTableBody"),
   qualifiedSubtitle: document.querySelector("#qualifiedSubtitle"),
+  bulkAssignBar: document.querySelector("#bulkAssignBar"),
+  bulkSelectedCount: document.querySelector("#bulkSelectedCount"),
+  bulkAssignSales: document.querySelector("#bulkAssignSales"),
+  bulkAssignButton: document.querySelector("#bulkAssignButton"),
+  bulkClearButton: document.querySelector("#bulkClearButton"),
+  bulkAssignStatus: document.querySelector("#bulkAssignStatus"),
   salesOverview: document.querySelector("#salesOverview"),
   salesTableHead: document.querySelector("#salesTableHead"),
   salesTableBody: document.querySelector("#salesTableBody"),
@@ -50,12 +56,12 @@ const gradeOrder = ["A+!", "A+", "A!", "A", "A-!", "A-", "B+!", "B+", "B!", "B",
 const markets = ["US", "CA", "AU"];
 
 const baseColumns = [
-  "Draft Status",
+  "Lead Status",
   "Market",
   "Grade",
   "Checkout",
   "Sales",
-  "Draft notes",
+  "Leads notes",
   "Created At Date",
   "Subtotal",
   "Shipping Name",
@@ -83,6 +89,7 @@ let state = {
   visibleLeads: [],
   salesVisibleLeads: [],
   visibleDrafts: [],
+  selectedLeadKeys: new Set(),
 };
 
 els.loginForm.addEventListener("submit", (event) => {
@@ -105,6 +112,8 @@ els.refreshButton.addEventListener("click", loadAllData);
 els.exportVisibleButton.addEventListener("click", () => exportCsv(state.visibleLeads, "visible-leads"));
 els.exportSalesTabsButton.addEventListener("click", () => exportCsv(state.salesVisibleLeads, "sales-lead-detail"));
 els.exportDraftButton.addEventListener("click", () => exportCsv(state.visibleDrafts, "draft-recovery-leads"));
+els.bulkAssignButton.addEventListener("click", bulkAssignSelectedLeads);
+els.bulkClearButton.addEventListener("click", clearBulkSelection);
 els.tabButtons.forEach((button) => button.addEventListener("click", () => setActiveTab(button.dataset.tab)));
 
 for (const control of [els.marketFilter, els.leadStatusFilter, els.gradeFilter, els.salesFilter, els.searchInput]) {
@@ -126,6 +135,8 @@ for (const control of [els.draftMarketFilter, els.draftLeadStatusFilter, els.dra
 }
 
 els.leadTableBody.addEventListener("change", handleLeadChange);
+els.leadTableHead.addEventListener("change", handleLeadSelectionChange);
+els.leadTableBody.addEventListener("change", handleLeadSelectionChange);
 els.leadTableBody.addEventListener("input", handleLeadInput);
 els.leadTableBody.addEventListener("click", handleLeadClick);
 els.salesTableBody.addEventListener("change", handleLeadChange);
@@ -219,6 +230,10 @@ async function loadHealth() {
       `<option value="">Unassigned</option>`,
       ...state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
     ].join("");
+    els.bulkAssignSales.innerHTML = [
+      `<option value="">Choose sales</option>`,
+      ...state.salesUsers.filter((name) => name !== "Non-sales").map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
+    ].join("");
     els.salesDetailSalesFilter.innerHTML = [
       `<option value="ALL">All sales</option>`,
       ...state.salesUsers.filter((name) => name !== "Non-sales").map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
@@ -281,6 +296,7 @@ async function loadLeads() {
     if (!response.ok) throw new Error(data.error || "Could not load leads.");
     state.salesUsers = data.salesUsers || state.salesUsers;
     state.leads = data.leads || [];
+    state.selectedLeadKeys.clear();
     populateGradeFilter(state.leads);
     renderSummary(data.summary || {});
     renderRulesFunnel();
@@ -299,7 +315,7 @@ async function loadLeads() {
 
 async function loadDrafts() {
   try {
-    const response = await fetch("/api/drafts?market=US,CA,AU&limit=50000", { cache: "no-store" });
+    const response = await fetch("/api/drafts?market=US,CA,AU&limit=3000", { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Could not load drafts.");
     state.drafts = data.drafts || [];
@@ -335,7 +351,7 @@ function renderUserMode() {
     els.switchUserButton.disabled = false;
   }
   if (state.role === "sales" && state.user !== "Admin") {
-    setActiveTab("drafts");
+    setActiveTab("workspace");
     els.salesFilter.value = state.user;
     els.salesFilter.disabled = true;
     els.salesDetailSalesFilter.value = state.user;
@@ -721,7 +737,14 @@ function renderTableHeads() {
   }
   const columns = [...baseColumns, ...productColumns, ...trailingLeadColumns];
   const head = `<tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>`;
-  els.leadTableHead.innerHTML = head;
+  els.leadTableHead.innerHTML = `
+    <tr>
+      <th class="bulk-select-col">
+        <input type="checkbox" data-action="select-visible-leads" aria-label="Select all visible assignable leads" />
+      </th>
+      ${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}
+    </tr>
+  `;
   els.salesTableHead.innerHTML = head;
 
   const draftProductColumns = [];
@@ -729,11 +752,11 @@ function renderTableHeads() {
     draftProductColumns.push(`Product ${i}`, `SKU ${i}`, `Draft Price ${i}`, `Current Price ${i}`, `Cost ${i}`, `Margin ${i}`, `Margin % ${i}`, `Inventory ${i}`, `Product URL ${i}`);
   }
   const draftColumns = [
-    "Draft Status",
+    "Lead Status",
     "Market",
     "Draft",
     "Sales",
-    "Draft notes",
+    "Leads notes",
     "Created At Date",
     "Shopify Draft Status",
     "Subtotal",
@@ -755,10 +778,12 @@ function renderTableHeads() {
 
 function renderLeadRows() {
   if (!state.visibleLeads.length) {
-    els.leadTableBody.innerHTML = `<tr class="empty-row"><td colspan="66">No leads match the current filters.</td></tr>`;
+    els.leadTableBody.innerHTML = `<tr class="empty-row"><td colspan="67">No leads match the current filters.</td></tr>`;
+    updateBulkAssignBar();
     return;
   }
-  els.leadTableBody.innerHTML = state.visibleLeads.map(renderLeadRow).join("");
+  els.leadTableBody.innerHTML = state.visibleLeads.map((lead) => renderLeadRow(lead, { selectable: true })).join("");
+  updateBulkAssignBar();
 }
 
 function renderSalesRows() {
@@ -767,7 +792,7 @@ function renderSalesRows() {
     els.salesDetailSubtitle.textContent = "No assigned lead detail to show.";
     return;
   }
-  els.salesTableBody.innerHTML = state.salesVisibleLeads.map(renderLeadRow).join("");
+  els.salesTableBody.innerHTML = state.salesVisibleLeads.map((lead) => renderLeadRow(lead)).join("");
   els.salesDetailSubtitle.textContent = `${state.salesVisibleLeads.length.toLocaleString()} active assigned leads.`;
 }
 
@@ -779,9 +804,23 @@ function renderDraftRows() {
   els.draftTableBody.innerHTML = state.visibleDrafts.map(renderDraftRow).join("");
 }
 
-function renderLeadRow(lead) {
+function renderLeadRow(lead, options = {}) {
   const isRecovered = getLeadStatus(lead).startsWith("Recovered") || lead.funnelStatus === "Recovered";
   const disabledSales = state.role === "sales" || isRecovered ? "disabled" : "";
+  const selectionKey = leadSelectionKey(lead);
+  const bulkDisabledReason = getBulkDisabledReason(lead);
+  const selectionCell = options.selectable
+    ? `<td class="bulk-select-col">
+        <input
+          type="checkbox"
+          data-action="select-lead"
+          aria-label="Select ${escapeAttribute(lead.checkout)}"
+          ${state.selectedLeadKeys.has(selectionKey) ? "checked" : ""}
+          ${bulkDisabledReason ? "disabled" : ""}
+          title="${escapeAttribute(bulkDisabledReason || "Select for bulk assignment")}"
+        />
+      </td>`
+    : "";
   const productCells = [];
   for (let i = 0; i < 7; i += 1) {
     const item = lead.lineItems[i] || {};
@@ -796,6 +835,7 @@ function renderLeadRow(lead) {
   }
   return `
     <tr data-id="${escapeAttribute(lead.id)}" data-market="${escapeAttribute(lead.market)}" class="row-market-${lead.market.toLowerCase()}">
+      ${selectionCell}
       <td>
         <select data-field="leadStatus">
           ${leadStatuses.map((status) => `<option value="${escapeAttribute(status)}" ${getLeadStatus(lead) === status ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
@@ -817,8 +857,11 @@ function renderLeadRow(lead) {
       </td>
       <td>
         <div class="notes-cell">
-          <textarea data-field="notes" placeholder="Draft notes">${escapeHtml(getLeadNotes(lead))}</textarea>
-          <button class="notes-submit-button" type="button" data-action="submit-notes">Submit</button>
+          <textarea data-field="notes" placeholder="Leads notes">${escapeHtml(getLeadNotes(lead))}</textarea>
+          <div class="notes-actions">
+            <button class="notes-submit-button" type="button" data-action="submit-notes">Submit</button>
+            <span class="notes-save-status" data-role="notes-save-status"></span>
+          </div>
         </div>
       </td>
       ${cell(formatCreatedAtWithAge(lead))}
@@ -882,8 +925,11 @@ function renderDraftRow(draft) {
       </td>
       <td>
         <div class="notes-cell">
-          <textarea data-field="notes" placeholder="Draft notes">${escapeHtml(getLeadNotes(draft))}</textarea>
-          <button class="notes-submit-button" type="button" data-action="submit-notes">Submit</button>
+          <textarea data-field="notes" placeholder="Leads notes">${escapeHtml(getLeadNotes(draft))}</textarea>
+          <div class="notes-actions">
+            <button class="notes-submit-button" type="button" data-action="submit-notes">Submit</button>
+            <span class="notes-save-status" data-role="notes-save-status"></span>
+          </div>
         </div>
       </td>
       ${cell(formatCreatedAtWithAge(draft))}
@@ -911,6 +957,40 @@ function handleLeadChange(event) {
   saveRowFromControl(event.target);
 }
 
+function handleLeadSelectionChange(event) {
+  const action = event.target.dataset.action;
+  if (!action) return;
+
+  if (action === "select-visible-leads") {
+    const checked = event.target.checked;
+    for (const lead of state.visibleLeads) {
+      const key = leadSelectionKey(lead);
+      if (getBulkDisabledReason(lead)) {
+        state.selectedLeadKeys.delete(key);
+      } else if (checked) {
+        state.selectedLeadKeys.add(key);
+      } else {
+        state.selectedLeadKeys.delete(key);
+      }
+    }
+    renderLeadRows();
+    return;
+  }
+
+  if (action === "select-lead") {
+    const row = event.target.closest("tr");
+    const lead = row ? findLead(row.dataset.market, row.dataset.id) : null;
+    if (!lead || getBulkDisabledReason(lead)) return;
+    const key = leadSelectionKey(lead);
+    if (event.target.checked) {
+      state.selectedLeadKeys.add(key);
+    } else {
+      state.selectedLeadKeys.delete(key);
+    }
+    updateBulkAssignBar();
+  }
+}
+
 function handleLeadInput(event) {
   const field = event.target.dataset.field;
   if (!field || event.target.tagName !== "TEXTAREA") return;
@@ -924,13 +1004,33 @@ async function handleLeadClick(event) {
     const row = submitNotesButton.closest("tr");
     const notesControl = row ? row.querySelector('[data-field="notes"]') : null;
     if (!notesControl) return;
+    const status = row.querySelector('[data-role="notes-save-status"]');
     clearTimeout(notesControl._saveTimer);
     submitNotesButton.disabled = true;
+    if (status) {
+      status.textContent = "Saving...";
+      status.dataset.state = "saving";
+    }
     try {
-      await saveRowFromControl(notesControl);
-      showTemporaryButtonText(submitNotesButton, "Saved");
+      const saved = await saveRowFromControl(notesControl);
+      if (saved) {
+        if (status) {
+          status.textContent = "Saved";
+          status.dataset.state = "saved";
+        }
+        showTemporaryButtonText(submitNotesButton, "Saved");
+      } else if (status) {
+        status.textContent = "Not saved";
+        status.dataset.state = "error";
+      }
     } finally {
       submitNotesButton.disabled = false;
+      if (status) {
+        window.setTimeout(() => {
+          status.textContent = "";
+          status.dataset.state = "";
+        }, 2200);
+      }
     }
     return;
   }
@@ -957,7 +1057,10 @@ async function handleLeadClick(event) {
 async function saveRowFromControl(control) {
   const row = control.closest("tr");
   const lead = findLead(row.dataset.market, row.dataset.id);
-  if (!lead) return;
+  if (!lead) {
+    alert("Could not find this lead in the loaded table. Refresh Data Hub and try again.");
+    return false;
+  }
   const changedField = control.dataset.field || "";
   const notes = getRowField(row, "notes");
   const payload = {
@@ -973,26 +1076,133 @@ async function saveRowFromControl(control) {
     updatedBy: state.authEmail || state.user || "",
   };
   try {
-    const response = await fetch("/api/assignments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || data.error || "Save failed");
-    if (data.dataHubSyncError) throw new Error(data.dataHubSyncError);
-    Object.assign(lead, {
-      assignedSales: data.assignment.sales || "",
-      leadStatus: data.assignment.leadStatus || data.assignment.salesStatus || "Valid",
-      salesStatus: data.assignment.leadStatus || data.assignment.salesStatus || "Valid",
-      salesNotes: data.assignment.notes || "",
-      assignedAt: data.assignment.assignedAt || "",
-      lastWorklogAt: data.assignment.updatedAt || "",
-    });
+    const data = await postAssignment(payload);
+    applyAssignmentResponseToLead(lead, data.assignment);
     if (changedField !== "notes") applyFilters();
+    return true;
   } catch (error) {
     alert(error.message);
+    return false;
   }
+}
+
+async function postAssignment(payload) {
+  const response = await fetch("/api/assignments", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || data.error || "Save failed");
+  if (data.dataHubSyncError) throw new Error(data.dataHubSyncError);
+  return data;
+}
+
+function applyAssignmentResponseToLead(lead, assignment = {}) {
+  Object.assign(lead, {
+    assignedSales: assignment.sales || "",
+    leadStatus: assignment.leadStatus || assignment.salesStatus || "Valid",
+    salesStatus: assignment.leadStatus || assignment.salesStatus || "Valid",
+    salesNotes: assignment.notes || "",
+    assignedAt: assignment.assignedAt || "",
+    lastWorklogAt: assignment.updatedAt || "",
+  });
+}
+
+async function bulkAssignSelectedLeads() {
+  const sales = els.bulkAssignSales.value;
+  if (!sales) {
+    alert("Choose a sales person first.");
+    return;
+  }
+
+  const selectedLeads = state.visibleLeads.filter((lead) => state.selectedLeadKeys.has(leadSelectionKey(lead)));
+  const assignableLeads = selectedLeads.filter((lead) => !getBulkDisabledReason(lead));
+  const skippedCount = selectedLeads.length - assignableLeads.length;
+  if (!assignableLeads.length) {
+    alert("No selected leads are eligible for bulk assignment.");
+    return;
+  }
+
+  const confirmMessage = skippedCount
+    ? `Assign ${assignableLeads.length} selected leads to ${sales}? ${skippedCount} ineligible lead(s) will be skipped.`
+    : `Assign ${assignableLeads.length} selected leads to ${sales}?`;
+  if (!window.confirm(confirmMessage)) return;
+
+  els.bulkAssignButton.disabled = true;
+  els.bulkAssignStatus.textContent = "Assigning...";
+  let savedCount = 0;
+  const failures = [];
+
+  for (const lead of assignableLeads) {
+    try {
+      const data = await postAssignment({
+        id: lead.id,
+        market: lead.market,
+        checkout: lead.checkout,
+        checkoutName: lead.checkout,
+        sales,
+        leadStatus: getLeadStatus(lead) || "Valid",
+        salesStatus: getLeadStatus(lead) || "Valid",
+        notes: lead.salesNotes || "",
+        sales_notes: lead.salesNotes || "",
+        updatedBy: state.authEmail || state.user || "",
+      });
+      applyAssignmentResponseToLead(lead, data.assignment);
+      state.selectedLeadKeys.delete(leadSelectionKey(lead));
+      savedCount += 1;
+    } catch (error) {
+      failures.push(`${lead.checkout}: ${error.message}`);
+    }
+  }
+
+  els.bulkAssignButton.disabled = false;
+  els.bulkAssignStatus.textContent = failures.length
+    ? `${savedCount} assigned, ${failures.length} failed`
+    : `${savedCount} assigned`;
+  applyFilters();
+  if (failures.length) {
+    alert(`Bulk assignment finished with errors:\n${failures.slice(0, 8).join("\n")}`);
+  }
+  window.setTimeout(() => {
+    els.bulkAssignStatus.textContent = "";
+  }, 3500);
+}
+
+function clearBulkSelection() {
+  state.selectedLeadKeys.clear();
+  renderLeadRows();
+}
+
+function updateBulkAssignBar() {
+  const visibleAssignable = state.visibleLeads.filter((lead) => !getBulkDisabledReason(lead));
+  for (const key of [...state.selectedLeadKeys]) {
+    const lead = state.visibleLeads.find((item) => leadSelectionKey(item) === key);
+    if (!lead || getBulkDisabledReason(lead)) state.selectedLeadKeys.delete(key);
+  }
+  const selectedCount = state.selectedLeadKeys.size;
+  els.bulkAssignBar.hidden = state.role === "sales" || selectedCount === 0;
+  els.bulkSelectedCount.textContent = `${selectedCount.toLocaleString()} selected`;
+  els.bulkAssignButton.disabled = selectedCount === 0;
+  const selectAll = els.leadTableHead.querySelector('[data-action="select-visible-leads"]');
+  if (selectAll) {
+    const selectedVisibleCount = visibleAssignable.filter((lead) => state.selectedLeadKeys.has(leadSelectionKey(lead))).length;
+    selectAll.checked = visibleAssignable.length > 0 && selectedVisibleCount === visibleAssignable.length;
+    selectAll.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleAssignable.length;
+    selectAll.disabled = state.role === "sales" || visibleAssignable.length === 0;
+  }
+}
+
+function getBulkDisabledReason(lead) {
+  if (state.role === "sales") return "Sales users cannot bulk assign leads.";
+  if (getLeadStatus(lead) !== "Valid") return "Only Valid leads can be bulk assigned.";
+  if (lead.funnelStatus === "Recovered" || getLeadStatus(lead).startsWith("Recovered")) return "Recovered leads cannot be assigned.";
+  if (lead.assignedSales) return `Already assigned to ${lead.assignedSales}.`;
+  return "";
+}
+
+function leadSelectionKey(lead) {
+  return `${lead.market}:${lead.id}`;
 }
 
 function getRowField(row, field) {
@@ -1055,11 +1265,11 @@ function getDraftExportHeaders() {
     productHeaders.push(`Product ${i}`, `SKU ${i}`, `Draft Price ${i}`, `Current Price ${i}`, `Cost ${i}`, `Margin ${i}`, `Margin % ${i}`, `Inventory ${i}`, `Product URL ${i}`);
   }
   return [
-    "Draft Status",
+    "Lead Status",
     "Market",
     "Draft",
     "Sales",
-    "Draft notes",
+    "Leads notes",
     "Created At Date",
     "Shopify Draft Status",
     "Subtotal",

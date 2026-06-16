@@ -107,8 +107,20 @@
             </div>
             <button id="exportVisibleButton" type="button">Export Visible CSV</button>
           </div>
+          <div id="bulkAssignBar" class="bulk-assign-bar" hidden>
+            <strong id="bulkSelectedCount">0 selected</strong>
+            <label>
+              <span>Assign to</span>
+              <select id="bulkAssignSales">
+                <option value="">Choose sales</option>
+              </select>
+            </label>
+            <button id="bulkAssignButton" type="button">Apply Assignment</button>
+            <button id="bulkClearButton" type="button">Clear Selection</button>
+            <span id="bulkAssignStatus" class="bulk-assign-status"></span>
+          </div>
           <div class="table-wrap">
-            <table class="lead-table">
+            <table class="lead-table selectable-lead-table">
               <thead id="leadTableHead"></thead>
               <tbody id="leadTableBody"></tbody>
             </table>
@@ -234,6 +246,6 @@
       </section>
     </main>
 
-    <script src="/app.js?v=20260616-0018"></script>
+    <script src="/app.js?v=20260616-0019"></script>
   </body>
 </html>

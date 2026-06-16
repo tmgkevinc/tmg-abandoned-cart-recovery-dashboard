@@ -598,6 +598,10 @@ function normalizeCheckout(record, market, productLookup, klaviyoLookup) {
     relatedOrderCreatedAt: relatedSalesOrder.orderCreatedAt,
     recoveredOrderTags,
     rawUpdatedAt: text(raw.updated_at || raw.updatedAt || record.updated_at || record.updatedAt),
+    assignedSales: text(raw.assigned_sales || raw.assignedSales || ""),
+    assignedAt: text(raw.assigned_at || raw.assignedAt || ""),
+    lastWorklogAt: text(raw.assignment_updated_at || raw.assignmentUpdatedAt || raw.assignment_last_updated_at || raw.assignmentLastUpdatedAt || ""),
+    salesNotes: text(raw.sales_notes || raw.salesNotes || raw.notes || raw.lead_notes || raw.leadNotes || ""),
     leadStatus: normalizeLeadStatus(raw.lead_status || ""),
     salesStatus: normalizeLeadStatus(raw.lead_status || ""),
     funnelStatus: normalizeFunnelStatus(raw.funnel_status || ""),
@@ -960,15 +964,15 @@ function applyAssignment(lead, assignments) {
   const savedLeadStatus = saved.leadStatus || saved.salesStatus || "";
   return {
     ...lead,
-    assignedSales: saved.sales || "",
-    leadStatus: savedLeadStatus,
-    salesStatus: savedLeadStatus,
-    salesNotes: saved.notes || "",
+    assignedSales: saved.sales || lead.assignedSales || "",
+    leadStatus: savedLeadStatus || lead.leadStatus || "",
+    salesStatus: savedLeadStatus || lead.salesStatus || "",
+    salesNotes: saved.notes || lead.salesNotes || "",
     funnelStatus: normalizeFunnelStatus(saved.funnelStatus || lead.funnelStatus || ""),
-    manualStatus: normalizeFunnelStatus(saved.manualStatus || ""),
-    manualNotes: saved.manualStatus === "No Contact" && !saved.manualNotes ? "No checkout phone" : saved.manualNotes || "",
-    assignedAt: saved.assignedAt || "",
-    lastWorklogAt: saved.updatedAt || "",
+    manualStatus: normalizeFunnelStatus(saved.manualStatus || lead.manualStatus || ""),
+    manualNotes: saved.manualStatus === "No Contact" && !saved.manualNotes ? "No checkout phone" : saved.manualNotes || lead.manualNotes || "",
+    assignedAt: saved.assignedAt || lead.assignedAt || "",
+    lastWorklogAt: saved.updatedAt || lead.lastWorklogAt || "",
   };
 }
 
@@ -1478,8 +1482,8 @@ function normalizeAssignmentRecord(row) {
     manualStatus: text(raw.manual_status || raw.manualStatus),
     manualNotes: text(raw.manual_notes || raw.manualNotes),
     assignedAt: text(raw.assigned_at || raw.assignedAt),
-    updatedAt: text(raw.updated_at || raw.updatedAt),
-    dataHubSyncedAt: text(raw.data_hub_synced_at || raw.dataHubSyncedAt || raw.updated_at || raw.updatedAt),
+    updatedAt: text(raw.assignment_updated_at || raw.assignmentUpdatedAt || raw.updated_at || raw.updatedAt),
+    dataHubSyncedAt: text(raw.data_hub_synced_at || raw.dataHubSyncedAt || raw.assignment_updated_at || raw.assignmentUpdatedAt || raw.updated_at || raw.updatedAt),
     dataHubSyncError: "",
   };
 }

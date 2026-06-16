@@ -37,6 +37,10 @@ if (!files.indexHtml.includes('data-tab="drafts"')) {
   fail("public/index.html must default to the draft workspace tab.");
 }
 
+if (!files.appJs.includes("limit=3000")) {
+  fail("public/app.js must keep draft API requests within Worker limits.");
+}
+
 if (!files.serverJs.includes("draft-recovery") || !files.workerJs.includes("draft-recovery")) {
   fail("server and worker must read draft-recovery.");
 }
