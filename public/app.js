@@ -336,7 +336,7 @@ function renderUserMode() {
     els.switchUserButton.disabled = false;
   }
   if (state.role === "sales" && state.user !== "Admin") {
-    setActiveTab("workspace");
+    setActiveTab("drafts");
     els.salesFilter.value = state.user;
     els.salesFilter.disabled = true;
     els.salesDetailSalesFilter.value = state.user;
