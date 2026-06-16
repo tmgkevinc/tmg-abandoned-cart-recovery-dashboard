@@ -38,6 +38,7 @@ export default {
       }
 
       if (url.pathname === "/api/health") {
+        const salesUsers = await getActiveSalesUsers();
         return jsonResponse(200, {
           authMode: AUTH_MODE,
           cloudflareAccessEnabled: AUTH_MODE === "cloudflare_access",
@@ -49,7 +50,7 @@ export default {
           dataHubUsesDashboardEditorKey: DATA_HUB_KEY_TYPE === "dashboard_editor",
           dataHubWriteCredential: DATA_HUB_KEY_TYPE === "dashboard_editor",
           markets: Object.keys(COUNTRY_META),
-          salesUsers: SALES_USERS,
+          salesUsers,
           persistence: getPersistenceMode(),
           writeAccess: Boolean(DATA_HUB_ASSIGNMENTS_WRITE_PATH),
           readAccess: Boolean(DATA_HUB_ASSIGNMENTS_READ_PATH),
@@ -66,24 +67,13 @@ export default {
       if (url.pathname === "/api/assignments" && request.method === "GET") return jsonResponse(200, await readAssignments());
       if (url.pathname === "/api/assignments" && request.method === "POST") return await handleSaveAssignment(request);
 
-      return await assetResponseNoStore(env, request);
+      return env.ASSETS.fetch(request);
     } catch (error) {
       console.error(error);
       return jsonResponse(500, { error: "An unknown server error occurred.", detail: error.message });
     }
   },
 };
-
-async function assetResponseNoStore(env, request) {
-  const response = await env.ASSETS.fetch(request);
-  const headers = new Headers(response.headers);
-  headers.set("Cache-Control", "no-store, max-age=0");
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
 
 function configureRuntime(env) {
   DATA_HUB_BASE_URL = String(env.TMG_DATA_HUB_BASE_URL || "").replace(/\/+$/, "");
@@ -152,6 +142,7 @@ async function handleLeads(url) {
     .sort(sortByGradeThenDate);
   const summary = buildSummary(withFunnel);
   summary.bySales = buildSalesAssignmentSummary(assignments, markets);
+  const salesUsers = await getActiveSalesUsers();
 
   return jsonResponse(200, {
     fetchedAt: startedAt.toISOString(),
@@ -159,7 +150,7 @@ async function handleLeads(url) {
     markets,
     source: useEnriched ? "enriched" : "raw",
     klaviyoStatus: includeKlaviyo ? "loaded" : "skipped",
-    salesUsers: SALES_USERS,
+    salesUsers,
     summary,
     leads: withFunnel,
   });
@@ -193,6 +184,7 @@ async function handleDrafts(url) {
     .map((draft) => applyAssignment(draft, assignments))
     .map(applyDraftOpportunityStatus)
     .sort(sortBySubtotalDesc);
+  const salesUsers = await getActiveSalesUsers();
 
   return jsonResponse(200, {
     fetchedAt: startedAt.toISOString(),
@@ -200,9 +192,61 @@ async function handleDrafts(url) {
     markets,
     source: "shopify_draft_orders_raw",
     summary: buildDraftSummary(drafts),
-    salesUsers: SALES_USERS,
+    salesUsers,
     drafts,
   });
+}
+
+async function getActiveSalesUsers() {
+  if (!DATA_HUB_BASE_URL || !DATA_HUB_API_KEY) return SALES_USERS;
+
+  try {
+    const payload = await fetchDataHubRecords("inside_sales_roster", "", 1000);
+    const activeUsers = extractRecords(payload)
+      .filter((row) => normalizeComparable(row.status) === "active")
+      .filter((row) => row.include_in_dashboard === undefined && row.includeInDashboard === undefined ? true : booleanValue(row.include_in_dashboard ?? row.includeInDashboard))
+      .map(getSalesRosterName)
+      .filter(Boolean);
+
+    const uniqueUsers = dedupeBy(activeUsers, (name) => name).sort((a, b) => a.localeCompare(b));
+    return uniqueUsers.length ? uniqueUsers : SALES_USERS;
+  } catch (error) {
+    console.warn(`Data Hub sales roster read failed; using fallback sales list. ${error.message}`);
+    return SALES_USERS;
+  }
+}
+
+function getSalesRosterName(row) {
+  const key = normalizeComparable(row.sales_key || row.salesKey);
+  const known = {
+    adam: "Adam",
+    arsenio: "Arsenio",
+    brian: "Brian",
+    jake: "Jake",
+    johnny: "Johnny",
+    josh: "Josh",
+    michael: "Michael",
+    mobarak: "Mobarak",
+    rachelf: "Rachel F",
+    ryan: "Ryan",
+    steven: "Steven",
+    tj: "T J",
+  };
+  if (known[key]) return known[key];
+
+  const requested = text(row.requested_label || row.requestedLabel);
+  if (requested && requested.length <= 16) return toTitleCase(requested);
+
+  const displayName = text(row.display_name || row.displayName || row.sales_name || row.salesName);
+  return displayName ? toTitleCase(displayName.split(/\s+/)[0]) : "";
+}
+
+function toTitleCase(value) {
+  return text(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => (part.length <= 2 ? part.toUpperCase() : `${part[0].toUpperCase()}${part.slice(1).toLowerCase()}`))
+    .join(" ");
 }
 
 async function proxyDataHub(endpoint) {
@@ -504,6 +548,7 @@ function normalizeCheckout(record, market, productLookup, klaviyoLookup) {
   const recoveredOrderTags = getRecoveredOrderTags(raw);
   const recoveredBySalesName = getRecoveredBySalesName(raw, recoveredOrderTags);
   const recoveredBySales = booleanValue(raw.recovered_by_sales || raw.recoveredBySales) || Boolean(recoveredBySalesName);
+  const relatedSalesOrder = getRelatedSalesOrderInfo(raw);
   const recovered = Boolean(
     raw.completed_at ||
       raw.completedAt ||
@@ -544,6 +589,8 @@ function normalizeCheckout(record, market, productLookup, klaviyoLookup) {
     recoveredBySales,
     recoveredBySalesName,
     relatedSales: getRelatedSalesName(raw),
+    relatedOrderNumber: relatedSalesOrder.orderNumber,
+    relatedOrderCreatedAt: relatedSalesOrder.orderCreatedAt,
     recoveredOrderTags,
     rawUpdatedAt: text(raw.updated_at || raw.updatedAt || record.updated_at || record.updatedAt),
     leadStatus: normalizeLeadStatus(raw.lead_status || ""),
@@ -990,12 +1037,20 @@ function getRecoveredBySalesName(raw, recoveredOrderTags) {
 }
 
 function getRelatedSalesName(raw) {
-  const orderCandidate = getEarliestRelatedSalesOrderCandidate(raw);
-  if (orderCandidate) {
-    const candidateSales = getCandidateSalesName(orderCandidate);
-    if (candidateSales) return candidateSales;
-  }
+  const direct = text(
+    raw.related_sales ||
+      raw.relatedSales ||
+      raw.related_sales_name ||
+      raw.relatedSalesName ||
+      raw.customer_related_sales ||
+      raw.customerRelatedSales ||
+      raw.customer_sales_owner ||
+      raw.customerSalesOwner,
+  );
+  return matchSalesName(direct) || direct;
+}
 
+function getRelatedSalesOrderInfo(raw) {
   const sourceType = normalizeComparable(
     raw.related_sales_source_type ||
       raw.relatedSalesSourceType ||
@@ -1013,92 +1068,21 @@ function getRelatedSalesName(raw) {
       raw.relatedSalesOrderId,
   );
 
-  if (sourceType.includes("draft") || /^#?d\d+/i.test(sourceOrder)) return "";
-  if (sourceType && !sourceType.includes("order")) return "";
-  if (!sourceType && !sourceOrder) return "";
+  if (sourceType.includes("draft") || /^#?d\d+/i.test(sourceOrder)) return { orderNumber: "", orderCreatedAt: "" };
+  if (sourceType && !sourceType.includes("order")) return { orderNumber: "", orderCreatedAt: "" };
+  if (!sourceType && !sourceOrder) return { orderNumber: "", orderCreatedAt: "" };
 
-  const direct = text(
-    raw.related_sales ||
-      raw.relatedSales ||
-      raw.related_sales_name ||
-      raw.relatedSalesName ||
-      raw.customer_related_sales ||
-      raw.customerRelatedSales ||
-      raw.customer_sales_owner ||
-      raw.customerSalesOwner,
-  );
-  return matchSalesName(direct) || direct;
-}
-
-function getEarliestRelatedSalesOrderCandidate(raw) {
-  const candidates = getRelatedSalesCandidates(raw)
-    .filter((candidate) => {
-      const sourceType = normalizeComparable(
-        candidate.source_type ||
-          candidate.sourceType ||
-          candidate.type ||
-          candidate.source ||
-          candidate.related_sales_source_type ||
-          candidate.relatedSalesSourceType,
-      );
-      const orderName = text(candidate.order_name || candidate.orderName || candidate.name || candidate.order_id || candidate.orderId);
-      if (sourceType.includes("draft") || /^#?d\d+/i.test(orderName)) return false;
-      return !sourceType || sourceType.includes("order");
-    })
-    .filter((candidate) => getCandidateSalesName(candidate));
-
-  if (!candidates.length) return null;
-  return candidates.sort((a, b) => {
-    const aTime = Date.parse(text(a.created_at || a.createdAt || a.order_created_at || a.orderCreatedAt || a.processed_at || a.processedAt)) || Number.MAX_SAFE_INTEGER;
-    const bTime = Date.parse(text(b.created_at || b.createdAt || b.order_created_at || b.orderCreatedAt || b.processed_at || b.processedAt)) || Number.MAX_SAFE_INTEGER;
-    return aTime - bTime;
-  })[0];
-}
-
-function getRelatedSalesCandidates(raw) {
-  const candidateSources = [
-    raw.related_sales_orders,
-    raw.relatedSalesOrders,
-    raw.related_sales_candidates,
-    raw.relatedSalesCandidates,
-    raw.customer_sales_orders,
-    raw.customerSalesOrders,
-    raw.previous_sales_orders,
-    raw.previousSalesOrders,
-  ];
-  const candidates = [];
-  for (const source of candidateSources) {
-    candidates.push(...parseArrayValue(source));
-  }
-  return candidates.filter((candidate) => candidate && typeof candidate === "object");
-}
-
-function parseArrayValue(value) {
-  if (Array.isArray(value)) return value;
-  if (typeof value !== "string" || !value.trim()) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    return [];
-  }
-}
-
-function getCandidateSalesName(candidate) {
-  const direct = text(
-    candidate.sales ||
-      candidate.sales_name ||
-      candidate.salesName ||
-      candidate.related_sales ||
-      candidate.relatedSales ||
-      candidate.assigned_sales ||
-      candidate.assignedSales ||
-      candidate.owner ||
-      candidate.owner_name ||
-      candidate.ownerName,
-  );
-  const tags = normalizeTags(candidate.tags || candidate.order_tags || candidate.orderTags);
-  return matchSalesName(direct) || matchSalesName(tags.join(" "));
+  return {
+    orderNumber: sourceOrder,
+    orderCreatedAt: text(
+      raw.related_sales_last_seen_at ||
+        raw.relatedSalesLastSeenAt ||
+        raw.related_sales_order_created_at ||
+        raw.relatedSalesOrderCreatedAt ||
+        raw.related_sales_source_order_created_at ||
+        raw.relatedSalesSourceOrderCreatedAt,
+    ),
+  };
 }
 
 function normalizeTags(value) {
@@ -1403,19 +1387,9 @@ function buildAssignmentMap(rows) {
   for (const row of rows) {
     const assignment = normalizeAssignmentRecord(row);
     if (!assignment) continue;
-    const key = `${assignment.market}:${assignment.id}`;
-    const previous = assignments[key];
-    if (!previous || getAssignmentSortTime(assignment) >= getAssignmentSortTime(previous)) {
-      assignments[key] = assignment;
-    }
+    assignments[`${assignment.market}:${assignment.id}`] = assignment;
   }
   return assignments;
-}
-
-function getAssignmentSortTime(assignment) {
-  const value = assignment.assignedAt || assignment.updatedAt || assignment.dataHubSyncedAt;
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function normalizeAssignmentRecord(row) {
