@@ -1,34 +1,3 @@
-const http = require("http");
-const fs = require("fs");
-const path = require("path");
-
-const ROOT = __dirname;
-const PUBLIC_DIR = path.join(ROOT, "public");
-
-loadEnv(path.join(ROOT, ".env"));
-
-const PORT = Number(process.env.PORT || 8080);
-const HOST = process.env.HOST || "0.0.0.0";
-const ASSIGNMENTS_FILE = process.env.ASSIGNMENTS_FILE || path.join(ROOT, "lead-assignments.json");
-const DATA_HUB_BASE_URL = String(process.env.TMG_DATA_HUB_BASE_URL || "").replace(/\/+$/, "");
-const DATA_HUB_API_KEY =
-  process.env.TEAM_API_KEY_DASHBOARD_EDITOR ||
-  process.env.TEAM_API_KEY_ADMIN ||
-  process.env.TMG_DATA_HUB_API_KEY ||
-  "";
-const DATA_HUB_KEY_TYPE = process.env.TEAM_API_KEY_DASHBOARD_EDITOR
-  ? "dashboard_editor"
-  : process.env.TEAM_API_KEY_ADMIN
-    ? "admin"
-    : process.env.TMG_DATA_HUB_API_KEY
-      ? "read_only"
-      : "missing";
-const AUTH_MODE = normalizeAuthMode(process.env.DASHBOARD_AUTH_MODE || process.env.AUTH_MODE || "manual");
-const ADMIN_EMAILS = parseEmailSet(process.env.ADMIN_EMAILS);
-const SALES_EMAIL_MAP = parseSalesEmailMap(process.env.SALES_EMAIL_MAP);
-const DATA_HUB_ASSIGNMENTS_WRITE_PATH = text(process.env.DATA_HUB_ASSIGNMENTS_WRITE_PATH || "");
-const DATA_HUB_ASSIGNMENTS_READ_PATH = text(process.env.DATA_HUB_ASSIGNMENTS_READ_PATH || "");
-
 const SALES_USERS = [
   "Johnny",
   "Brian",
@@ -46,82 +15,93 @@ const COUNTRY_META = {
   AU: { currency: "AUD", theme: "purple", siteBaseUrl: "https://www.tmgindustrial.com.au" },
 };
 
-const server = http.createServer(async (req, res) => {
-  try {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const session = getDashboardSession(req);
+let DATA_HUB_BASE_URL = "";
+let DATA_HUB_API_KEY = "";
+let DATA_HUB_KEY_TYPE = "missing";
+let AUTH_MODE = "manual";
+let ADMIN_EMAILS = new Set();
+let SALES_EMAIL_MAP = new Map();
+let DATA_HUB_ASSIGNMENTS_WRITE_PATH = "";
+let DATA_HUB_ASSIGNMENTS_READ_PATH = "";
 
-    if (url.pathname === "/api/session") {
-      return sendJson(res, 200, session);
+export default {
+  async fetch(request, env) {
+    configureRuntime(env);
+    const url = new URL(request.url);
+    const session = getDashboardSession(request);
+
+    try {
+      if (url.pathname === "/api/session") return jsonResponse(200, session);
+
+      if (AUTH_MODE === "cloudflare_access" && url.pathname.startsWith("/api/") && !session.authenticated) {
+        return jsonResponse(403, { error: "Cloudflare Access email is required for this dashboard.", session });
+      }
+
+      if (url.pathname === "/api/health") {
+        const salesUsers = await getActiveSalesUsers();
+        return jsonResponse(200, {
+          authMode: AUTH_MODE,
+          cloudflareAccessEnabled: AUTH_MODE === "cloudflare_access",
+          currentUser: session.authenticated ? { email: session.email, user: session.user, role: session.role } : null,
+          dataHubConfigured: Boolean(DATA_HUB_BASE_URL && DATA_HUB_API_KEY),
+          dataHubBaseUrl: DATA_HUB_BASE_URL || null,
+          dataHubKeyType: DATA_HUB_KEY_TYPE,
+          dataHubUsesAdminKey: DATA_HUB_KEY_TYPE === "admin",
+          dataHubUsesDashboardEditorKey: DATA_HUB_KEY_TYPE === "dashboard_editor",
+          dataHubWriteCredential: DATA_HUB_KEY_TYPE === "dashboard_editor",
+          markets: Object.keys(COUNTRY_META),
+          salesUsers,
+          persistence: getPersistenceMode(),
+          writeAccess: Boolean(DATA_HUB_ASSIGNMENTS_WRITE_PATH),
+          readAccess: Boolean(DATA_HUB_ASSIGNMENTS_READ_PATH),
+          assignmentWritePathConfigured: Boolean(DATA_HUB_ASSIGNMENTS_WRITE_PATH),
+          assignmentReadPathConfigured: Boolean(DATA_HUB_ASSIGNMENTS_READ_PATH),
+          runtime: "cloudflare-worker",
+        });
+      }
+
+      if (url.pathname === "/api/data-hub/catalog") return await proxyDataHub("/api/data-hub/catalog");
+      if (url.pathname === "/api/data-hub/freshness") return await proxyDataHub("/api/data-hub/freshness");
+      if (url.pathname === "/api/leads") return await handleLeads(url);
+      if (url.pathname === "/api/drafts") return await handleDrafts(url);
+      if (url.pathname === "/api/assignments" && request.method === "GET") return jsonResponse(200, await readAssignments());
+      if (url.pathname === "/api/assignments" && request.method === "POST") return await handleSaveAssignment(request);
+
+      return env.ASSETS.fetch(request);
+    } catch (error) {
+      console.error(error);
+      return jsonResponse(500, { error: "An unknown server error occurred.", detail: error.message });
     }
+  },
+};
 
-    if (AUTH_MODE === "cloudflare_access" && url.pathname.startsWith("/api/") && !session.authenticated) {
-      return sendJson(res, 403, {
-        error: "Cloudflare Access email is required for this dashboard.",
-        session,
-      });
-    }
+function configureRuntime(env) {
+  DATA_HUB_BASE_URL = String(env.TMG_DATA_HUB_BASE_URL || "").replace(/\/+$/, "");
+  DATA_HUB_API_KEY = env.TEAM_API_KEY_DASHBOARD_EDITOR || env.TEAM_API_KEY_ADMIN || env.TMG_DATA_HUB_API_KEY || "";
+  DATA_HUB_KEY_TYPE = env.TEAM_API_KEY_DASHBOARD_EDITOR ? "dashboard_editor" : env.TEAM_API_KEY_ADMIN ? "admin" : env.TMG_DATA_HUB_API_KEY ? "read_only" : "missing";
+  AUTH_MODE = normalizeAuthMode(env.DASHBOARD_AUTH_MODE || env.AUTH_MODE || "manual");
+  ADMIN_EMAILS = parseEmailSet(env.ADMIN_EMAILS);
+  SALES_EMAIL_MAP = parseSalesEmailMap(env.SALES_EMAIL_MAP);
+  DATA_HUB_ASSIGNMENTS_WRITE_PATH = text(env.DATA_HUB_ASSIGNMENTS_WRITE_PATH || "");
+  DATA_HUB_ASSIGNMENTS_READ_PATH = text(env.DATA_HUB_ASSIGNMENTS_READ_PATH || "");
+}
 
-    if (url.pathname === "/api/health") {
-      const salesUsers = await getActiveSalesUsers();
-      return sendJson(res, 200, {
-        authMode: AUTH_MODE,
-        cloudflareAccessEnabled: AUTH_MODE === "cloudflare_access",
-        currentUser: session.authenticated ? { email: session.email, user: session.user, role: session.role } : null,
-        dataHubConfigured: Boolean(DATA_HUB_BASE_URL && DATA_HUB_API_KEY),
-        dataHubBaseUrl: DATA_HUB_BASE_URL || null,
-        dataHubKeyType: DATA_HUB_KEY_TYPE,
-        dataHubUsesAdminKey: DATA_HUB_KEY_TYPE === "admin",
-        dataHubUsesDashboardEditorKey: DATA_HUB_KEY_TYPE === "dashboard_editor",
-        dataHubWriteCredential: DATA_HUB_KEY_TYPE === "dashboard_editor",
-        markets: Object.keys(COUNTRY_META),
-        salesUsers,
-        persistence: getPersistenceMode(),
-        writeAccess: Boolean(DATA_HUB_ASSIGNMENTS_WRITE_PATH),
-        readAccess: Boolean(DATA_HUB_ASSIGNMENTS_READ_PATH),
-        assignmentWritePathConfigured: Boolean(DATA_HUB_ASSIGNMENTS_WRITE_PATH),
-        assignmentReadPathConfigured: Boolean(DATA_HUB_ASSIGNMENTS_READ_PATH),
-      });
-    }
+function jsonResponse(status, payload) {
+  return new Response(JSON.stringify(payload), { status, headers: { "Content-Type": "application/json; charset=utf-8" } });
+}
 
-    if (url.pathname === "/api/data-hub/catalog") {
-      return await proxyDataHub(res, "/api/data-hub/catalog");
-    }
+function getHeader(req, name) {
+  if (req.headers && typeof req.headers.get === "function") return req.headers.get(name) || "";
+  return req.headers?.[name] || req.headers?.[name.toLowerCase()] || "";
+}
 
-    if (url.pathname === "/api/data-hub/freshness") {
-      return await proxyDataHub(res, "/api/data-hub/freshness");
-    }
+function base64DecodeToText(value) {
+  return decodeURIComponent(escape(atob(value)));
+}
 
-    if (url.pathname === "/api/leads") {
-      return await handleLeads(url, res);
-    }
-
-    if (url.pathname === "/api/drafts") {
-      return await handleDrafts(url, res);
-    }
-
-    if (url.pathname === "/api/assignments" && req.method === "GET") {
-      return sendJson(res, 200, await readAssignments());
-    }
-
-    if (url.pathname === "/api/assignments" && req.method === "POST") {
-      return await handleSaveAssignment(req, res);
-    }
-
-    return serveStatic(url.pathname, res);
-  } catch (error) {
-    console.error(error);
-    return sendJson(res, 500, { error: "An unknown server error occurred." });
-  }
-});
-
-server.listen(PORT, HOST, () => {
-  console.log(`Dashboard ready: http://${HOST}:${PORT}`);
-});
-
-async function handleLeads(url, res) {
+async function handleLeads(url) {
   if (!DATA_HUB_BASE_URL || !DATA_HUB_API_KEY) {
-    return sendJson(res, 400, {
+    return jsonResponse(400, {
       error: "Set TMG_DATA_HUB_BASE_URL and TMG_DATA_HUB_API_KEY in .env before loading leads.",
     });
   }
@@ -164,7 +144,7 @@ async function handleLeads(url, res) {
   summary.bySales = buildSalesAssignmentSummary(assignments, markets);
   const salesUsers = await getActiveSalesUsers();
 
-  return sendJson(res, 200, {
+  return jsonResponse(200, {
     fetchedAt: startedAt.toISOString(),
     count: withFunnel.length,
     markets,
@@ -176,10 +156,10 @@ async function handleLeads(url, res) {
   });
 }
 
-async function handleDrafts(url, res) {
+async function handleDrafts(url) {
   if (!DATA_HUB_BASE_URL || !DATA_HUB_API_KEY) {
-    return sendJson(res, 400, {
-      error: "Set TMG_DATA_HUB_BASE_URL and TMG_DATA_HUB_API_KEY in .env before loading drafts.",
+    return jsonResponse(400, {
+      error: "Set TMG_DATA_HUB_BASE_URL and TMG_DATA_HUB_API_KEY before loading drafts.",
     });
   }
 
@@ -198,7 +178,6 @@ async function handleDrafts(url, res) {
   })));
   const productLookup = {};
   const assignments = await readAssignments(markets, 10000);
-
   const drafts = draftResults
     .flatMap((result) => result.records.map((record) => ({ record, market: result.market })))
     .map(({ record, market }) => normalizeDraft(record, market, productLookup))
@@ -210,7 +189,7 @@ async function handleDrafts(url, res) {
     .sort(sortBySubtotalDesc);
   const salesUsers = await getActiveSalesUsers();
 
-  return sendJson(res, 200, {
+  return jsonResponse(200, {
     fetchedAt: startedAt.toISOString(),
     count: drafts.length,
     markets,
@@ -276,19 +255,39 @@ function toTitleCase(value) {
     .join(" ");
 }
 
-async function proxyDataHub(res, endpoint) {
+async function proxyDataHub(endpoint) {
   if (!DATA_HUB_BASE_URL || !DATA_HUB_API_KEY) {
-    return sendJson(res, 400, { error: "Data Hub environment variables are missing." });
+    return jsonResponse(400, { error: "Data Hub environment variables are missing." });
   }
 
   const response = await fetch(`${DATA_HUB_BASE_URL}${endpoint}`, {
     headers: { "x-api-key": DATA_HUB_API_KEY },
   });
   const text = await response.text();
-  res.writeHead(response.status, {
-    "Content-Type": response.headers.get("content-type") || "application/json; charset=utf-8",
+  return new Response(text, { status: response.status, headers: { "Content-Type": response.headers.get("content-type") || "application/json; charset=utf-8" } });
+}
+
+async function fetchDataHubRecords(table, country, limit) {
+  const params = new URLSearchParams({ table, limit: String(limit) });
+  if (country) params.set("country", country);
+
+  const response = await fetch(`${DATA_HUB_BASE_URL}/api/data-hub/records?${params}`, {
+    headers: { "x-api-key": DATA_HUB_API_KEY },
   });
-  res.end(text);
+
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch (error) {
+    throw new Error(`Data Hub returned invalid JSON for ${table}/${country}.`);
+  }
+
+  if (!response.ok) {
+    throw new Error(payload.error || `Data Hub returned ${response.status} for ${table}/${country}.`);
+  }
+
+  return payload;
 }
 
 async function fetchDraftOrders(country, limit) {
@@ -324,29 +323,6 @@ async function fetchDraftOrders(country, limit) {
   }
 
   return rows;
-}
-
-async function fetchDataHubRecords(table, country, limit) {
-  const params = new URLSearchParams({ table, limit: String(limit) });
-  if (country) params.set("country", country);
-
-  const response = await fetch(`${DATA_HUB_BASE_URL}/api/data-hub/records?${params}`, {
-    headers: { "x-api-key": DATA_HUB_API_KEY },
-  });
-
-  const text = await response.text();
-  let payload = {};
-  try {
-    payload = text ? JSON.parse(text) : {};
-  } catch (error) {
-    throw new Error(`Data Hub returned invalid JSON for ${table}/${country}.`);
-  }
-
-  if (!response.ok) {
-    throw new Error(payload.error || `Data Hub returned ${response.status} for ${table}/${country}.`);
-  }
-
-  return payload;
 }
 
 async function fetchAbandonedCartLeads(country, limit, source = "enriched", fetchAllPages = false) {
@@ -622,10 +598,6 @@ function normalizeCheckout(record, market, productLookup, klaviyoLookup) {
     relatedOrderCreatedAt: relatedSalesOrder.orderCreatedAt,
     recoveredOrderTags,
     rawUpdatedAt: text(raw.updated_at || raw.updatedAt || record.updated_at || record.updatedAt),
-    assignedSales: text(raw.assigned_sales || raw.assignedSales || ""),
-    assignedAt: text(raw.assigned_at || raw.assignedAt || ""),
-    lastWorklogAt: text(raw.assignment_updated_at || raw.assignmentUpdatedAt || raw.assignment_last_updated_at || raw.assignmentLastUpdatedAt || ""),
-    salesNotes: text(raw.sales_notes || raw.salesNotes || raw.notes || raw.lead_notes || raw.leadNotes || ""),
     leadStatus: normalizeLeadStatus(raw.lead_status || ""),
     salesStatus: normalizeLeadStatus(raw.lead_status || ""),
     funnelStatus: normalizeFunnelStatus(raw.funnel_status || ""),
@@ -855,8 +827,7 @@ function normalizeLineItem(item) {
       item.available,
   );
   const productUrl = text(item.product_url || item.productUrl || item.url || "");
-  const extended = { title, sku, quantity, checkoutPrice, currentPrice, cost, inventory, productUrl };
-  return addMarginFields(extended);
+  return addMarginFields({ title, sku, quantity, checkoutPrice, currentPrice, cost, inventory, productUrl });
 }
 
 function addMarginFields(item) {
@@ -1000,15 +971,15 @@ function applyAssignment(lead, assignments) {
   const savedLeadStatus = saved.leadStatus || saved.salesStatus || "";
   return {
     ...lead,
-    assignedSales: saved.sales || lead.assignedSales || "",
-    leadStatus: savedLeadStatus || lead.leadStatus || "",
-    salesStatus: savedLeadStatus || lead.salesStatus || "",
-    salesNotes: saved.notes || lead.salesNotes || "",
+    assignedSales: saved.sales || "",
+    leadStatus: savedLeadStatus,
+    salesStatus: savedLeadStatus,
+    salesNotes: saved.notes || "",
     funnelStatus: normalizeFunnelStatus(saved.funnelStatus || lead.funnelStatus || ""),
-    manualStatus: normalizeFunnelStatus(saved.manualStatus || lead.manualStatus || ""),
-    manualNotes: saved.manualStatus === "No Contact" && !saved.manualNotes ? "No checkout phone" : saved.manualNotes || lead.manualNotes || "",
-    assignedAt: saved.assignedAt || lead.assignedAt || "",
-    lastWorklogAt: saved.updatedAt || lead.lastWorklogAt || "",
+    manualStatus: normalizeFunnelStatus(saved.manualStatus || ""),
+    manualNotes: saved.manualStatus === "No Contact" && !saved.manualNotes ? "No checkout phone" : saved.manualNotes || "",
+    assignedAt: saved.assignedAt || "",
+    lastWorklogAt: saved.updatedAt || "",
   };
 }
 
@@ -1301,12 +1272,12 @@ function incrementAgeBucket(buckets, ageHours) {
   else buckets.over1m += 1;
 }
 
-async function handleSaveAssignment(req, res) {
+async function handleSaveAssignment(req) {
   const body = await readJsonBody(req);
   const id = text(body.id);
   const market = text(body.market).toUpperCase();
   if (!id || !COUNTRY_META[market]) {
-    return sendJson(res, 400, { error: "Lead id and market are required." });
+    return jsonResponse(400, { error: "Lead id and market are required." });
   }
 
   const assignments = await readAssignments([market], 10000);
@@ -1314,7 +1285,6 @@ async function handleSaveAssignment(req, res) {
   const previous = assignments[key] || {};
   const now = new Date().toISOString();
   const leadStatus = normalizeLeadStatus(body.leadStatus || body.salesStatus || previous.leadStatus || previous.salesStatus || "Valid");
-  const notes = text(body.notes || body.sales_notes || body.salesNotes);
   assignments[key] = {
     ...previous,
     id,
@@ -1323,7 +1293,7 @@ async function handleSaveAssignment(req, res) {
     sales: text(body.sales),
     leadStatus,
     salesStatus: leadStatus,
-    notes,
+    notes: text(body.notes),
     funnelStatus: text(body.funnelStatus || previous.funnelStatus || ""),
     manualStatus: text(body.manualStatus || previous.manualStatus || ""),
     manualNotes: text(body.manualNotes || previous.manualNotes || ""),
@@ -1337,12 +1307,10 @@ async function handleSaveAssignment(req, res) {
   assignments[key].dataHubSyncedAt = syncResult.syncedAt || assignments[key].dataHubSyncedAt || "";
   assignments[key].dataHubSyncError = syncResult.error || "";
   writeAssignments(assignments);
-  const statusCode = syncResult.error ? 502 : 200;
-  return sendJson(res, statusCode, {
+  return jsonResponse(200, {
     ok: true,
     assignment: assignments[key],
     dataHubSynced: Boolean(syncResult.syncedAt),
-    error: syncResult.error || "",
     dataHubSyncError: syncResult.error || "",
   });
 }
@@ -1365,7 +1333,6 @@ async function syncAssignmentToDataHub(assignment, requestBody) {
     assigned_sales: assignment.sales,
     lead_status: assignment.leadStatus,
     sales_notes: assignment.notes,
-    notes: assignment.notes,
     assigned_at: assignment.assignedAt || null,
     updated_at: assignment.updatedAt,
     updated_by: text(requestBody.updatedBy || requestBody.updated_by || requestBody.userEmail || ""),
@@ -1518,8 +1485,8 @@ function normalizeAssignmentRecord(row) {
     manualStatus: text(raw.manual_status || raw.manualStatus),
     manualNotes: text(raw.manual_notes || raw.manualNotes),
     assignedAt: text(raw.assigned_at || raw.assignedAt),
-    updatedAt: text(raw.assignment_updated_at || raw.assignmentUpdatedAt || raw.updated_at || raw.updatedAt),
-    dataHubSyncedAt: text(raw.data_hub_synced_at || raw.dataHubSyncedAt || raw.assignment_updated_at || raw.assignmentUpdatedAt || raw.updated_at || raw.updatedAt),
+    updatedAt: text(raw.updated_at || raw.updatedAt),
+    dataHubSyncedAt: text(raw.data_hub_synced_at || raw.dataHubSyncedAt || raw.updated_at || raw.updatedAt),
     dataHubSyncError: "",
   };
 }
@@ -1533,17 +1500,11 @@ function normalizeCheckoutAssignmentId(value) {
 }
 
 function readLocalAssignments() {
-  if (!fs.existsSync(ASSIGNMENTS_FILE)) return {};
-  try {
-    const parsed = JSON.parse(fs.readFileSync(ASSIGNMENTS_FILE, "utf8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch (error) {
-    return {};
-  }
+  return {};
 }
 
 function writeAssignments(assignments) {
-  fs.writeFileSync(ASSIGNMENTS_FILE, JSON.stringify(assignments, null, 2), "utf8");
+  void assignments;
 }
 
 function assignmentKey(lead) {
@@ -1875,11 +1836,11 @@ function getDashboardSession(req) {
 }
 
 function getCloudflareAccessIdentity(req) {
-  const token = text(req.headers["cf-access-jwt-assertion"]);
+  const token = text(getHeader(req, "cf-access-jwt-assertion"));
   const tokenPayload = decodeJwtPayload(token);
   if (tokenPayload?.email) return { email: tokenPayload.email, source: "cf-access-jwt-assertion" };
 
-  const headerEmail = text(req.headers["cf-access-authenticated-user-email"]);
+  const headerEmail = text(getHeader(req, "cf-access-authenticated-user-email"));
   if (headerEmail) return { email: headerEmail, source: "cf-access-authenticated-user-email" };
 
   return { email: "", source: "" };
@@ -1891,7 +1852,7 @@ function decodeJwtPayload(token) {
   try {
     const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
     const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
-    return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
+    return JSON.parse(base64DecodeToText(padded));
   } catch (error) {
     return null;
   }
@@ -1960,74 +1921,14 @@ function nullableNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+async function readJsonBody(req) {
+  try {
+    return await req.json();
+  } catch (error) {
+    return {};
+  }
+}
+
 function text(value) {
   return String(value ?? "").trim();
-}
-
-function serveStatic(pathname, res) {
-  const safePath = pathname === "/" ? "/index.html" : pathname;
-  const filePath = path.normalize(path.join(PUBLIC_DIR, safePath));
-  if (!filePath.startsWith(PUBLIC_DIR)) return sendText(res, 403, "Forbidden");
-  fs.readFile(filePath, (error, data) => {
-    if (error) return sendText(res, 404, "Not found");
-    res.writeHead(200, { "Content-Type": contentType(filePath) });
-    res.end(data);
-  });
-}
-
-function sendJson(res, status, payload) {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(payload));
-}
-
-function sendText(res, status, textValue) {
-  res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
-  res.end(textValue);
-}
-
-function readJsonBody(req) {
-  return new Promise((resolve, reject) => {
-    let data = "";
-    req.on("data", (chunk) => {
-      data += chunk;
-      if (data.length > 1024 * 1024) {
-        reject(new Error("Request body is too large."));
-        req.destroy();
-      }
-    });
-    req.on("end", () => {
-      try {
-        resolve(data ? JSON.parse(data) : {});
-      } catch (error) {
-        reject(error);
-      }
-    });
-    req.on("error", reject);
-  });
-}
-
-function contentType(filePath) {
-  return (
-    {
-      ".html": "text/html; charset=utf-8",
-      ".css": "text/css; charset=utf-8",
-      ".js": "text/javascript; charset=utf-8",
-      ".json": "application/json; charset=utf-8",
-      ".svg": "image/svg+xml",
-    }[path.extname(filePath).toLowerCase()] || "application/octet-stream"
-  );
-}
-
-function loadEnv(filePath) {
-  if (!fs.existsSync(filePath)) return;
-  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const index = trimmed.indexOf("=");
-    if (index === -1) continue;
-    const key = trimmed.slice(0, index).trim();
-    const value = trimmed.slice(index + 1).trim().replace(/^["']|["']$/g, "");
-    if (!process.env[key]) process.env[key] = value;
-  }
 }

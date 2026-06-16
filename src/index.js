@@ -673,6 +673,7 @@ function normalizeDraft(record, market, productLookup) {
     marginPercent: marginSummary.marginPercent,
     marginWithoutShipping: marginSummary.marginWithoutShipping,
     marginWithShipping: marginSummary.marginWithShipping,
+    marginWithShippingPercent: marginSummary.marginWithShippingPercent,
     currency,
     checkoutPhone: phone,
     checkoutEmail: email,
@@ -706,7 +707,16 @@ function normalizeDraft(record, market, productLookup) {
 
 function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippingIncludedInSubtotal = false) {
   const costs = lineItems.map((item) => item.totalCost).filter((value) => value !== null && value !== undefined);
-  if (!costs.length) return { totalCost: null, margin: null, marginPercent: null, marginWithoutShipping: null, marginWithShipping: null };
+  if (!costs.length) {
+    return {
+      totalCost: null,
+      margin: null,
+      marginPercent: null,
+      marginWithoutShipping: null,
+      marginWithShipping: null,
+      marginWithShippingPercent: null,
+    };
+  }
   const totalCost = costs.reduce((sum, value) => sum + Number(value || 0), 0);
   const subtotalRevenue = Number(subtotal || 0);
   const shipping = Number(shippingAmount || 0);
@@ -715,7 +725,8 @@ function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippin
   const marginWithoutShipping = revenueWithoutShipping - totalCost;
   const marginWithShipping = revenueWithShipping - totalCost;
   const marginPercent = revenueWithoutShipping ? marginWithoutShipping / revenueWithoutShipping : null;
-  return { totalCost, margin: marginWithoutShipping, marginPercent, marginWithoutShipping, marginWithShipping };
+  const marginWithShippingPercent = revenueWithShipping ? marginWithShipping / revenueWithShipping : null;
+  return { totalCost, margin: marginWithoutShipping, marginPercent, marginWithoutShipping, marginWithShipping, marginWithShippingPercent };
 }
 
 function getDraftShippingLine(raw) {

@@ -953,8 +953,8 @@ function renderDraftRow(draft) {
       ${cell(formatMoney(draft.subtotal, draft.currency))}
       ${cell(formatOptionalMoney(draft.totalCost, draft.currency))}
       ${cell(formatMoney(draft.manualShippingPrice || 0, draft.currency))}
-      ${cell(formatOptionalMoney(draft.marginWithoutShipping ?? draft.margin, draft.currency))}
-      ${cell(formatOptionalMoney(draft.marginWithShipping, draft.currency))}
+      ${cell(formatOptionalMoneyWithPercent(draft.marginWithoutShipping ?? draft.margin, draft.marginPercent, draft.currency))}
+      ${cell(formatOptionalMoneyWithPercent(draft.marginWithShipping, draft.marginWithShippingPercent, draft.currency))}
       ${cell(draft.name)}
       ${cell(draft.checkoutPhone)}
       ${cell(draft.checkoutEmail)}
@@ -1360,8 +1360,8 @@ function getDraftExportValues(draft) {
     draft.subtotal,
     draft.totalCost ?? "",
     draft.manualShippingPrice || 0,
-    draft.marginWithoutShipping ?? draft.margin ?? "",
-    draft.marginWithShipping ?? "",
+    formatOptionalMoneyWithPercent(draft.marginWithoutShipping ?? draft.margin, draft.marginPercent, draft.currency),
+    formatOptionalMoneyWithPercent(draft.marginWithShipping, draft.marginWithShippingPercent, draft.currency),
     draft.name,
     draft.checkoutPhone,
     draft.checkoutEmail,
@@ -1491,6 +1491,13 @@ function formatMoney(value, currency) {
 function formatOptionalMoney(value, currency) {
   if (value === null || value === undefined || value === "") return "";
   return formatMoney(value, currency);
+}
+
+function formatOptionalMoneyWithPercent(value, percent, currency) {
+  const money = formatOptionalMoney(value, currency);
+  const formattedPercent = formatOptionalPercent(percent);
+  if (!money) return formattedPercent ? `(${formattedPercent})` : "";
+  return formattedPercent ? `${money} (${formattedPercent})` : money;
 }
 
 function formatOptionalPercent(value) {
