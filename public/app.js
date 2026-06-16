@@ -50,12 +50,12 @@ const gradeOrder = ["A+!", "A+", "A!", "A", "A-!", "A-", "B+!", "B+", "B!", "B",
 const markets = ["US", "CA", "AU"];
 
 const baseColumns = [
-  "Lead Status",
+  "Draft Status",
   "Market",
   "Grade",
   "Checkout",
   "Sales",
-  "Leads notes",
+  "Draft notes",
   "Created At Date",
   "Subtotal",
   "Shipping Name",
@@ -528,7 +528,7 @@ function renderRulesFunnel() {
     </div>
     <div class="rules-grid">
       ${renderRuleGroup("Grade Rules", gradeRules)}
-      ${renderRuleGroup("Lead Status Rules", statusRules)}
+      ${renderRuleGroup("Draft Status Rules", statusRules)}
       ${renderRuleGroup("Assignment Rules", [
         ["Manual only", "Drafts stay unassigned until a user selects a sales owner."],
         ["No auto assignment", "Time zone, market, shipping, cost, and margin are shown for review, but they do not assign drafts automatically."],

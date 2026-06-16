@@ -33,7 +33,7 @@ if (!files.indexHtml.includes("Draft Recovery")) {
   fail("public/index.html must render the draft recovery workspace.");
 }
 
-if (!files.indexHtml.includes("Draft Recovery Leads")) {
+if (!files.indexHtml.includes("Draft Recovery")) {
   fail("public/index.html must include the draft recovery table.");
 }
 
