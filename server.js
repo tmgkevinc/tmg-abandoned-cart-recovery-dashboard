@@ -195,7 +195,7 @@ async function handleDrafts(url, res) {
     market,
     records: await fetchDraftOrders(market, limit),
   })));
-  const productLookup = await buildProductLookupFromCheckouts(draftResults);
+  const productLookup = {};
   const assignments = await readAssignments(markets, 10000);
 
   const drafts = draftResults

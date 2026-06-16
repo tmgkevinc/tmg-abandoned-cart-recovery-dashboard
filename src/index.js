@@ -175,7 +175,7 @@ async function handleDrafts(url) {
     market,
     records: await fetchDraftOrders(market, limit),
   })));
-  const productLookup = await buildProductLookupFromCheckouts(draftResults);
+  const productLookup = {};
   const assignments = await readAssignments(markets, 10000);
   const drafts = draftResults
     .flatMap((result) => result.records.map((record) => ({ record, market: result.market })))
