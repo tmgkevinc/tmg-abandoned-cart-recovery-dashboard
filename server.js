@@ -190,10 +190,11 @@ async function handleDrafts(url, res) {
   const limit = Math.max(25, Math.min(Number(url.searchParams.get("limit") || 10000), 50000));
   const startedAt = new Date();
   const currentYear = startedAt.getFullYear();
+  const perMarketLimit = Math.max(25, Math.ceil(limit / Math.max(markets.length, 1)));
 
   const draftResults = await Promise.all(markets.map(async (market) => ({
     market,
-    records: await fetchDraftOrders(market, limit),
+    records: await fetchDraftOrders(market, perMarketLimit),
   })));
   const productLookup = {};
   const assignments = await readAssignments(markets, 10000);
@@ -214,6 +215,8 @@ async function handleDrafts(url, res) {
     count: drafts.length,
     markets,
     year: currentYear,
+    limit,
+    perMarketLimit,
     source: "draft-recovery",
     summary: buildDraftSummary(drafts),
     salesUsers,

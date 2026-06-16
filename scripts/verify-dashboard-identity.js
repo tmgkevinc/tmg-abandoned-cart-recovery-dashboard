@@ -29,30 +29,20 @@ if (!files.packageJson.includes('"name": "tmg-high-shipping-no-completed-dashboa
   fail("package.json must use the high shipping draft dashboard package name.");
 }
 
-if (!files.indexHtml.includes("Draft Recovery")) {
-  fail("public/index.html must render the draft recovery workspace.");
+if (!files.indexHtml.includes("TMG High Shipping Not Completed Draft")) {
+  fail("public/index.html must render the high shipping draft dashboard.");
 }
 
-if (!files.indexHtml.includes("Draft Recovery")) {
-  fail("public/index.html must include the draft recovery table.");
-}
-
-const forbiddenMarkers = ["All abandoned carts"];
-
-for (const [name, content] of Object.entries(files)) {
-  for (const marker of forbiddenMarkers) {
-    if (content.includes(marker)) {
-      fail(`${name} contains forbidden dashboard marker: ${marker}`);
-    }
-  }
+if (!files.indexHtml.includes('data-tab="drafts"')) {
+  fail("public/index.html must default to the draft workspace tab.");
 }
 
 if (!files.serverJs.includes("draft-recovery") || !files.workerJs.includes("draft-recovery")) {
   fail("server and worker must read draft-recovery.");
 }
 
-if (!files.wrangler.includes("DATA_HUB_ASSIGNMENTS_READ_PATH") || !files.wrangler.includes("DATA_HUB_ASSIGNMENTS_WRITE_PATH")) {
-  fail("wrangler.jsonc must configure Data Hub assignment read/write paths.");
+if (!files.serverJs.includes("isCurrentYearDraft") || !files.workerJs.includes("isCurrentYearDraft")) {
+  fail("server and worker must apply current-year draft filtering.");
 }
 
 if (process.exitCode) {

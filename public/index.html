@@ -71,7 +71,7 @@
             </select>
           </label>
           <label>
-            <span>Draft status</span>
+            <span>Lead status</span>
             <select id="leadStatusFilter">
               <option value="ALL">All</option>
               <option value="Valid" selected>Valid</option>
@@ -102,8 +102,8 @@
         <section class="panel qualified-panel">
           <div class="panel-header">
             <div>
-              <h2>Draft Recovery</h2>
-              <p id="qualifiedSubtitle">Load Data Hub drafts to begin.</p>
+              <h2>Abandoned Cart Leads</h2>
+              <p id="qualifiedSubtitle">Load Data Hub leads to begin.</p>
             </div>
             <button id="exportVisibleButton" type="button">Export Visible CSV</button>
           </div>
@@ -118,8 +118,8 @@
         <section class="panel sales-detail-panel">
           <div class="panel-header">
             <div>
-              <h2>Sales Draft Details</h2>
-              <p id="salesDetailSubtitle">Sales view shows only the signed-in user's assigned drafts.</p>
+              <h2>Sales Lead Details</h2>
+              <p id="salesDetailSubtitle">Sales view shows only the signed-in user's assigned leads.</p>
             </div>
             <button id="exportSalesTabsButton" type="button">Export Sales CSV</button>
           </div>
@@ -134,7 +134,7 @@
               </select>
             </label>
             <label>
-              <span>Draft status</span>
+              <span>Lead status</span>
               <select id="salesLeadStatusFilter">
                 <option value="ALL">All</option>
                 <option value="Valid" selected>Valid</option>
@@ -183,7 +183,7 @@
             </select>
           </label>
           <label>
-            <span>Draft status</span>
+            <span>Lead status</span>
             <select id="draftLeadStatusFilter">
               <option value="ALL" selected>All</option>
               <option value="Valid">Valid</option>
@@ -208,7 +208,7 @@
         <section class="panel">
           <div class="panel-header">
             <div>
-              <h2>Draft Recovery</h2>
+              <h2>Draft Recovery Leads</h2>
               <p id="draftSubtitle">Draft orders with manual shipping will load from Data Hub.</p>
             </div>
           </div>
@@ -226,7 +226,7 @@
           <div class="panel-header">
             <div>
               <h2>Rules & Funnel</h2>
-              <p>Current draft selection logic used by this dashboard.</p>
+              <p>Current lead selection logic used by this dashboard.</p>
             </div>
           </div>
           <div id="rulesFunnel" class="rules-funnel"></div>
@@ -234,6 +234,6 @@
       </section>
     </main>
 
-    <script src="/app.js?v=20260616-0017"></script>
+    <script src="/app.js?v=20260616-0018"></script>
   </body>
 </html>
