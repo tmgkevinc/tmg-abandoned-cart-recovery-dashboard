@@ -29,7 +29,7 @@ if (!files.packageJson.includes('"name": "tmg-abandoned-cart-recovery-dashboard"
   fail("package.json must use the abandoned cart dashboard package name.");
 }
 
-if (!files.indexHtml.includes("TMG Lead Recovery Workspace")) {
+if (!files.indexHtml.includes("TMG Abandoned Cart Leads Recovery")) {
   fail("public/index.html must render the lead recovery workspace.");
 }
 
