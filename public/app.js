@@ -463,59 +463,65 @@ function renderDraftSummary(summary) {
 }
 
 function renderRulesFunnel() {
-  const counts = state.draftFunnel || getDraftFunnelCounts(state.drafts);
+  const counts = getFunnelCounts(state.leads);
   const readyRate = counts.all ? Math.round((counts.ready / counts.all) * 100) : 0;
-  const currentYear = new Date().getFullYear();
   const steps = [
     {
-      label: "Current year only",
+      label: "All abandoned carts",
       count: counts.all,
       countType: "total",
-      rule: `Only draft orders created in ${currentYear} are included. Older historical drafts are excluded before every other rule runs.`,
-      outcome: "This keeps the dashboard focused on current-year high shipping recovery opportunities.",
+      rule: "All abandoned cart leads loaded from Data Hub for US, CA, and AU.",
+      outcome: "This is the starting pool before any lead selection gate runs.",
     },
     {
-      label: "Not completed gate",
-      count: counts.completed,
-      rule: "Draft status must be not completed. Completed drafts are removed from the recovery queue.",
-      outcome: "Only open / not completed drafts continue.",
+      label: "Age gate",
+      count: counts.tooNew,
+      rule: "Leads created less than 72 hours ago are held out first. They can become Valid once they pass 72 hours.",
+      outcome: "Filtered status: Too New.",
     },
     {
-      label: "Manual shipping gate",
-      count: counts.noManualShipping,
-      rule: "Draft must have a manually added shipping line. This identifies high-shipping-not-completed cases.",
-      outcome: "Drafts without manual shipping are removed.",
+      label: "Phone gate",
+      count: counts.noContact,
+      rule: "Lead must have checkout phone. Checkout email is helpful but not required. Leads older than 30 days remain Valid when they pass the other gates.",
+      outcome: "Filtered status: No Phone.",
     },
     {
-      label: "Shipping cost gate",
-      count: counts.lowShipping,
-      rule: "Manually added shipping cost must be greater than 100. Drafts with shipping cost of 100 or lower are removed.",
-      outcome: "Only high-shipping draft opportunities continue to inventory review.",
+      label: "Duplicate gate",
+      count: counts.duplicate,
+      rule: "For the same customer name and same product set, keep only the newest checkout.",
+      outcome: "Filtered status: Duplicate.",
+    },
+    {
+      label: "Recovered gate",
+      count: counts.recovered,
+      rule: "If Data Hub marks the abandoned cart as recovered, remove it from active lead selection. If the recovered order happened after a prior assignment, it can be counted as Recovered by Sales; otherwise it is Recovered Auto.",
+      outcome: "Filtered status: Recovered.",
     },
     {
       label: "Inventory gate",
       count: counts.noInventory,
-      rule: "Draft needs at least one visible product line with usable inventory. PP / PSP / surcharge-only rows are not treated as recoverable products.",
-      outcome: "Drafts with no recoverable product inventory are marked Invalid / Needs Review.",
-    },
-    {
-      label: "Margin cost check",
-      count: 0,
-      rule: "Estimated cost, margin without shipping, and margin with shipping are displayed from Data Hub rate-sheet cost data.",
-      outcome: "This check is visible for review but does not currently remove drafts.",
+      rule: "At least one non-PP / non-PSP / non-surcharge product in the cart must have usable inventory from Data Hub product inventory data.",
+      outcome: "Filtered status: No Inventory.",
     },
     {
       label: "Valid before manual review",
-      count: counts.ready,
+      count: counts.afterInventory,
       countType: "total",
-      rule: "Current-year, not-completed drafts with manual shipping cost over 100 and inventory become recovery-ready candidates.",
-      outcome: "Manual review can still remove drafts that are not useful for follow-up.",
+      rule: "Leads that pass age, phone, duplicate, recovered, and inventory gates become valid candidates before manual review.",
+      outcome: "Manual review can still remove spam, tests, bad addresses, or leads sales already rejected.",
     },
     {
       label: "Manually marked gate",
       count: counts.manualMarked,
-      rule: "Admin or sales can manually mark drafts Invalid when they are tests, bad opportunities, already handled, or not worth follow-up.",
-      outcome: `${counts.manualMarked.toLocaleString()} drafts are currently manually marked out.`,
+      rule: "Admin or sales can manually mark a lead Invalid after review, for reasons like spam, internal test, fake customer, bad fit, or not interested.",
+      outcome: `${counts.manualMarked.toLocaleString()} leads are currently manually marked out.`,
+    },
+    {
+      label: "Valid leads",
+      count: counts.ready,
+      countType: "total",
+      rule: "Final Valid leads are the active abandoned cart leads available for assignment.",
+      outcome: "This count should match the Valid filter when no other filters are applied.",
     },
   ];
 
@@ -530,18 +536,18 @@ function renderRulesFunnel() {
   ];
 
   const statusRules = [
-    ["Valid", "Effective draft for sales follow-up."],
-    ["Invalid", "Draft does not qualify, or sales/admin manually marked it as not useful."],
-    ["Recovered Auto", "Data Hub shows a recovered order, but there was no earlier sales assignment tied to that draft."],
-    ["Recovered by Sales", "The draft was assigned before the recovered order was created, or Data Hub provides a sales-tag owner."],
+    ["Valid", "Lead qualifies for sales follow-up."],
+    ["Invalid", "Lead does not qualify, or sales/admin manually marked it as not useful."],
+    ["Recovered Auto", "Data Hub shows a recovered order, but there was no earlier sales assignment before the order date."],
+    ["Recovered by Sales", "The lead was assigned to a sales person before the recovered order was created."],
   ];
 
   els.rulesFunnel.innerHTML = `
     <div class="rules-summary">
-      <article><span>Current-year drafts</span><strong>${counts.all.toLocaleString()}</strong></article>
-      <article><span>Recovery-ready</span><strong>${counts.ready.toLocaleString()}</strong></article>
-      <article><span>Invalid or review</span><strong>${(counts.all - counts.ready).toLocaleString()}</strong></article>
-      <article><span>Ready rate</span><strong>${readyRate}%</strong></article>
+      <article><span>Abandoned carts</span><strong>${counts.all.toLocaleString()}</strong></article>
+      <article><span>Valid leads</span><strong>${counts.ready.toLocaleString()}</strong></article>
+      <article><span>Removed or inactive</span><strong>${(counts.all - counts.ready).toLocaleString()}</strong></article>
+      <article><span>Valid rate</span><strong>${readyRate}%</strong></article>
     </div>
     <div class="funnel-steps">
       ${steps
