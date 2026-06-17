@@ -37,6 +37,10 @@ const els = {
   bulkAssignButton: document.querySelector("#bulkAssignButton"),
   bulkClearButton: document.querySelector("#bulkClearButton"),
   bulkAssignStatus: document.querySelector("#bulkAssignStatus"),
+  leadPager: document.querySelector("#leadPager"),
+  leadPrevPage: document.querySelector("#leadPrevPage"),
+  leadNextPage: document.querySelector("#leadNextPage"),
+  leadPageInfo: document.querySelector("#leadPageInfo"),
   salesOverview: document.querySelector("#salesOverview"),
   salesTableHead: document.querySelector("#salesTableHead"),
   salesTableBody: document.querySelector("#salesTableBody"),
@@ -45,7 +49,6 @@ const els = {
   draftTableHead: document.querySelector("#draftTableHead"),
   draftTableBody: document.querySelector("#draftTableBody"),
   draftSubtitle: document.querySelector("#draftSubtitle"),
-  exportVisibleButton: document.querySelector("#exportVisibleButton"),
   exportSalesTabsButton: document.querySelector("#exportSalesTabsButton"),
   exportDraftButton: document.querySelector("#exportDraftButton"),
   rulesFunnel: document.querySelector("#rulesFunnel"),
@@ -86,11 +89,16 @@ let state = {
   salesUsers: [],
   leads: [],
   drafts: [],
+  draftFunnel: null,
   visibleLeads: [],
+  pagedVisibleLeads: [],
   salesVisibleLeads: [],
   visibleDrafts: [],
   selectedLeadKeys: new Set(),
+  leadPage: 1,
 };
+
+const leadPageSize = 5;
 
 els.loginForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -109,11 +117,12 @@ els.switchUserButton.addEventListener("click", () => {
 });
 
 els.refreshButton.addEventListener("click", loadAllData);
-els.exportVisibleButton.addEventListener("click", () => exportCsv(state.visibleLeads, "visible-leads"));
 els.exportSalesTabsButton.addEventListener("click", () => exportCsv(state.salesVisibleLeads, "sales-lead-detail"));
 els.exportDraftButton.addEventListener("click", () => exportCsv(state.visibleDrafts, "draft-recovery-leads"));
 els.bulkAssignButton.addEventListener("click", bulkAssignSelectedLeads);
 els.bulkClearButton.addEventListener("click", clearBulkSelection);
+els.leadPrevPage.addEventListener("click", () => changeLeadPage(-1));
+els.leadNextPage.addEventListener("click", () => changeLeadPage(1));
 els.tabButtons.forEach((button) => button.addEventListener("click", () => setActiveTab(button.dataset.tab)));
 
 for (const control of [els.marketFilter, els.leadStatusFilter, els.gradeFilter, els.salesFilter, els.searchInput]) {
@@ -230,6 +239,7 @@ async function loadHealth() {
       `<option value="">Unassigned</option>`,
       ...state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
     ].join("");
+    els.salesFilter.value = "";
     els.bulkAssignSales.innerHTML = [
       `<option value="">Choose sales</option>`,
       ...state.salesUsers.filter((name) => name !== "Non-sales").map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
@@ -318,13 +328,18 @@ async function loadDrafts() {
     const response = await fetch("/api/drafts?market=US,CA,AU&limit=3000", { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Could not load drafts.");
+    state.salesUsers = data.salesUsers || state.salesUsers;
     state.drafts = data.drafts || [];
+    state.draftFunnel = data.funnel || null;
     renderDraftSummary(data.summary || {});
+    renderRulesFunnel();
     applyFilters();
     els.draftSubtitle.textContent = `${state.drafts.length.toLocaleString()} open draft orders with manual shipping loaded from Data Hub.`;
   } catch (error) {
     state.drafts = [];
+    state.draftFunnel = null;
     renderDraftSummary({});
+    renderRulesFunnel();
     applyFilters();
     els.draftSubtitle.textContent = error.message;
   }
@@ -448,7 +463,7 @@ function renderDraftSummary(summary) {
 }
 
 function renderRulesFunnel() {
-  const counts = getDraftFunnelCounts(state.drafts);
+  const counts = state.draftFunnel || getDraftFunnelCounts(state.drafts);
   const readyRate = counts.all ? Math.round((counts.ready / counts.all) * 100) : 0;
   const currentYear = new Date().getFullYear();
   const steps = [
@@ -472,6 +487,12 @@ function renderRulesFunnel() {
       outcome: "Drafts without manual shipping are removed.",
     },
     {
+      label: "Shipping cost gate",
+      count: counts.lowShipping,
+      rule: "Manually added shipping cost must be greater than 100. Drafts with shipping cost of 100 or lower are removed.",
+      outcome: "Only high-shipping draft opportunities continue to inventory review.",
+    },
+    {
       label: "Inventory gate",
       count: counts.noInventory,
       rule: "Draft needs at least one visible product line with usable inventory. PP / PSP / surcharge-only rows are not treated as recoverable products.",
@@ -487,7 +508,7 @@ function renderRulesFunnel() {
       label: "Valid before manual review",
       count: counts.ready,
       countType: "total",
-      rule: "Current-year, not-completed drafts with manual shipping and inventory become recovery-ready candidates.",
+      rule: "Current-year, not-completed drafts with manual shipping cost over 100 and inventory become recovery-ready candidates.",
       outcome: "Manual review can still remove drafts that are not useful for follow-up.",
     },
     {
@@ -543,11 +564,11 @@ function renderRulesFunnel() {
     </div>
     <div class="rules-grid">
       ${renderRuleGroup("Grade Rules", gradeRules)}
-      ${renderRuleGroup("Draft Status Rules", statusRules)}
+      ${renderRuleGroup("Lead Status Rules", statusRules)}
       ${renderRuleGroup("Assignment Rules", [
-        ["Manual only", "Drafts stay unassigned until a user selects a sales owner."],
-        ["No auto assignment", "Time zone, market, shipping, cost, and margin are shown for review, but they do not assign drafts automatically."],
-        ["Storage", "Assignments and notes are saved through the dashboard service."],
+        ["Manual only", "Leads stay unassigned until a user selects a sales owner."],
+        ["No auto assignment", "Time zone and market are shown for review, but they do not assign leads automatically."],
+        ["Storage", "Assignments and notes are saved by the local dashboard service until Data Hub write access is available."],
       ])}
     </div>
   `;
@@ -614,6 +635,7 @@ function getDraftFunnelCounts(drafts) {
     all: drafts.length,
     completed: 0,
     noManualShipping: 0,
+    lowShipping: 0,
     noInventory: 0,
     manualMarked: 0,
     ready: 0,
@@ -622,6 +644,7 @@ function getDraftFunnelCounts(drafts) {
   for (const draft of drafts) {
     if (draft.completed) counts.completed += 1;
     if (!draft.hasManualShipping) counts.noManualShipping += 1;
+    if (Number(draft.manualShippingPrice || 0) <= 100) counts.lowShipping += 1;
     if (draft.funnelStatus === "Needs Review") counts.noInventory += 1;
     if (draft.leadStatus !== "Valid" && draft.funnelStatus !== "Needs Review") counts.manualMarked += 1;
     if (draft.leadStatus === "Valid") counts.ready += 1;
@@ -655,6 +678,9 @@ function applyFilters() {
     if (!query) return true;
     return searchBlob(lead).includes(query);
   }).sort(sortBySubtotalDesc);
+  state.leadPage = Math.min(state.leadPage, getLeadPageCount());
+  if (state.leadPage < 1) state.leadPage = 1;
+  state.pagedVisibleLeads = getPagedVisibleLeads();
 
   state.salesVisibleLeads = state.leads
     .filter((lead) => lead.assignedSales && lead.funnelStatus !== "Recovered")
@@ -756,7 +782,7 @@ function renderTableHeads() {
   els.leadTableHead.innerHTML = `
     <tr>
       <th class="bulk-select-col">
-        <input type="checkbox" data-action="select-visible-leads" aria-label="Select all visible assignable leads" />
+        <input type="checkbox" data-action="select-visible-leads" aria-label="Select all visible assignable leads on this page" />
       </th>
       ${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}
     </tr>
@@ -793,13 +819,16 @@ function renderTableHeads() {
 }
 
 function renderLeadRows() {
+  state.pagedVisibleLeads = getPagedVisibleLeads();
   if (!state.visibleLeads.length) {
     els.leadTableBody.innerHTML = `<tr class="empty-row"><td colspan="67">No leads match the current filters.</td></tr>`;
     updateBulkAssignBar();
+    updateLeadPager();
     return;
   }
-  els.leadTableBody.innerHTML = state.visibleLeads.map((lead) => renderLeadRow(lead, { selectable: true })).join("");
+  els.leadTableBody.innerHTML = state.pagedVisibleLeads.map((lead) => renderLeadRow(lead, { selectable: true })).join("");
   updateBulkAssignBar();
+  updateLeadPager();
 }
 
 function renderSalesRows() {
@@ -953,8 +982,8 @@ function renderDraftRow(draft) {
       ${cell(formatMoney(draft.subtotal, draft.currency))}
       ${cell(formatOptionalMoney(draft.totalCost, draft.currency))}
       ${cell(formatMoney(draft.manualShippingPrice || 0, draft.currency))}
-      ${cell(formatOptionalMoneyWithPercent(draft.marginWithoutShipping ?? draft.margin, draft.marginPercent, draft.currency))}
-      ${cell(formatOptionalMoneyWithPercent(draft.marginWithShipping, draft.marginWithShippingPercent, draft.currency))}
+      ${cell(formatOptionalMoney(draft.marginWithoutShipping ?? draft.margin, draft.currency))}
+      ${cell(formatOptionalMoney(draft.marginWithShipping, draft.currency))}
       ${cell(draft.name)}
       ${cell(draft.checkoutPhone)}
       ${cell(draft.checkoutEmail)}
@@ -979,7 +1008,7 @@ function handleLeadSelectionChange(event) {
 
   if (action === "select-visible-leads") {
     const checked = event.target.checked;
-    for (const lead of state.visibleLeads) {
+    for (const lead of state.pagedVisibleLeads) {
       const key = leadSelectionKey(lead);
       if (getBulkDisabledReason(lead)) {
         state.selectedLeadKeys.delete(key);
@@ -1132,7 +1161,7 @@ async function bulkAssignSelectedLeads() {
     return;
   }
 
-  const selectedLeads = state.visibleLeads.filter((lead) => state.selectedLeadKeys.has(leadSelectionKey(lead)));
+  const selectedLeads = state.leads.filter((lead) => state.selectedLeadKeys.has(leadSelectionKey(lead)));
   const assignableLeads = selectedLeads.filter((lead) => !getBulkDisabledReason(lead));
   const skippedCount = selectedLeads.length - assignableLeads.length;
   if (!assignableLeads.length) {
@@ -1191,9 +1220,9 @@ function clearBulkSelection() {
 }
 
 function updateBulkAssignBar() {
-  const visibleAssignable = state.visibleLeads.filter((lead) => !getBulkDisabledReason(lead));
+  const pageAssignable = state.pagedVisibleLeads.filter((lead) => !getBulkDisabledReason(lead));
   for (const key of [...state.selectedLeadKeys]) {
-    const lead = state.visibleLeads.find((item) => leadSelectionKey(item) === key);
+    const lead = state.leads.find((item) => leadSelectionKey(item) === key);
     if (!lead || getBulkDisabledReason(lead)) state.selectedLeadKeys.delete(key);
   }
   const selectedCount = state.selectedLeadKeys.size;
@@ -1202,10 +1231,10 @@ function updateBulkAssignBar() {
   els.bulkAssignButton.disabled = selectedCount === 0;
   const selectAll = els.leadTableHead.querySelector('[data-action="select-visible-leads"]');
   if (selectAll) {
-    const selectedVisibleCount = visibleAssignable.filter((lead) => state.selectedLeadKeys.has(leadSelectionKey(lead))).length;
-    selectAll.checked = visibleAssignable.length > 0 && selectedVisibleCount === visibleAssignable.length;
-    selectAll.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleAssignable.length;
-    selectAll.disabled = state.role === "sales" || visibleAssignable.length === 0;
+    const selectedPageCount = pageAssignable.filter((lead) => state.selectedLeadKeys.has(leadSelectionKey(lead))).length;
+    selectAll.checked = pageAssignable.length > 0 && selectedPageCount === pageAssignable.length;
+    selectAll.indeterminate = selectedPageCount > 0 && selectedPageCount < pageAssignable.length;
+    selectAll.disabled = state.role === "sales" || pageAssignable.length === 0;
   }
 }
 
@@ -1219,6 +1248,30 @@ function getBulkDisabledReason(lead) {
 
 function leadSelectionKey(lead) {
   return `${lead.market}:${lead.id}`;
+}
+
+function getLeadPageCount() {
+  return Math.max(1, Math.ceil(state.visibleLeads.length / leadPageSize));
+}
+
+function getPagedVisibleLeads() {
+  const start = (state.leadPage - 1) * leadPageSize;
+  return state.visibleLeads.slice(start, start + leadPageSize);
+}
+
+function updateLeadPager() {
+  const total = state.visibleLeads.length;
+  const pageCount = getLeadPageCount();
+  els.leadPager.hidden = total <= leadPageSize;
+  els.leadPageInfo.textContent = `${state.leadPage.toLocaleString()} / ${pageCount.toLocaleString()}`;
+  els.leadPrevPage.disabled = state.leadPage <= 1;
+  els.leadNextPage.disabled = state.leadPage >= pageCount;
+}
+
+function changeLeadPage(delta) {
+  const pageCount = getLeadPageCount();
+  state.leadPage = Math.min(pageCount, Math.max(1, state.leadPage + delta));
+  renderLeadRows();
 }
 
 function getRowField(row, field) {
@@ -1360,8 +1413,8 @@ function getDraftExportValues(draft) {
     draft.subtotal,
     draft.totalCost ?? "",
     draft.manualShippingPrice || 0,
-    formatOptionalMoneyWithPercent(draft.marginWithoutShipping ?? draft.margin, draft.marginPercent, draft.currency),
-    formatOptionalMoneyWithPercent(draft.marginWithShipping, draft.marginWithShippingPercent, draft.currency),
+    draft.marginWithoutShipping ?? draft.margin ?? "",
+    draft.marginWithShipping ?? "",
     draft.name,
     draft.checkoutPhone,
     draft.checkoutEmail,
@@ -1491,13 +1544,6 @@ function formatMoney(value, currency) {
 function formatOptionalMoney(value, currency) {
   if (value === null || value === undefined || value === "") return "";
   return formatMoney(value, currency);
-}
-
-function formatOptionalMoneyWithPercent(value, percent, currency) {
-  const money = formatOptionalMoney(value, currency);
-  const formattedPercent = formatOptionalPercent(percent);
-  if (!money) return formattedPercent ? `(${formattedPercent})` : "";
-  return formattedPercent ? `${money} (${formattedPercent})` : money;
 }
 
 function formatOptionalPercent(value) {
