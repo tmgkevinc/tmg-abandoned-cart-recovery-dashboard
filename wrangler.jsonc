@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "high-shipping-no-completed-dashboard",
+  "name": "tmg-abandoned-cart-recovery-dashboard",
   "main": "src/index.js",
   "compatibility_date": "2026-06-10",
   "assets": {
