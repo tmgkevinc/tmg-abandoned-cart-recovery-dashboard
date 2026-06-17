@@ -204,7 +204,7 @@ async function handleDrafts(url) {
     fetchedAt: startedAt.toISOString(),
     count: drafts.length,
     markets,
-    source: "high-shipping-drafts",
+    source: "draft-recovery",
     summary: buildDraftSummary(drafts),
     salesUsers,
     drafts,
@@ -680,9 +680,7 @@ function normalizeDraft(record, market, productLookup) {
     margin: marginSummary.margin,
     marginPercent: marginSummary.marginPercent,
     marginWithoutShipping: marginSummary.marginWithoutShipping,
-    marginWithoutShippingPercent: marginSummary.marginWithoutShippingPercent,
     marginWithShipping: marginSummary.marginWithShipping,
-    marginWithShippingPercent: marginSummary.marginWithShippingPercent,
     currency,
     checkoutPhone: phone,
     checkoutEmail: email,
@@ -716,17 +714,7 @@ function normalizeDraft(record, market, productLookup) {
 
 function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippingIncludedInSubtotal = false) {
   const costs = lineItems.map((item) => item.totalCost).filter((value) => value !== null && value !== undefined);
-  if (!costs.length) {
-    return {
-      totalCost: null,
-      margin: null,
-      marginPercent: null,
-      marginWithoutShipping: null,
-      marginWithoutShippingPercent: null,
-      marginWithShipping: null,
-      marginWithShippingPercent: null,
-    };
-  }
+  if (!costs.length) return { totalCost: null, margin: null, marginPercent: null, marginWithoutShipping: null, marginWithShipping: null };
   const totalCost = costs.reduce((sum, value) => sum + Number(value || 0), 0);
   const subtotalRevenue = Number(subtotal || 0);
   const shipping = Number(shippingAmount || 0);
@@ -734,17 +722,8 @@ function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippin
   const revenueWithShipping = shippingIncludedInSubtotal ? subtotalRevenue : subtotalRevenue + shipping;
   const marginWithoutShipping = revenueWithoutShipping - totalCost;
   const marginWithShipping = revenueWithShipping - totalCost;
-  const marginWithoutShippingPercent = revenueWithoutShipping ? marginWithoutShipping / revenueWithoutShipping : null;
-  const marginWithShippingPercent = revenueWithShipping ? marginWithShipping / revenueWithShipping : null;
-  return {
-    totalCost,
-    margin: marginWithoutShipping,
-    marginPercent: marginWithoutShippingPercent,
-    marginWithoutShipping,
-    marginWithoutShippingPercent,
-    marginWithShipping,
-    marginWithShippingPercent,
-  };
+  const marginPercent = revenueWithoutShipping ? marginWithoutShipping / revenueWithoutShipping : null;
+  return { totalCost, margin: marginWithoutShipping, marginPercent, marginWithoutShipping, marginWithShipping };
 }
 
 function getDraftShippingLine(raw) {
