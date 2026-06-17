@@ -1,8 +1,8 @@
 {
-  "name": "tmg-abandoned-cart-recovery-dashboard",
+  "name": "tmg-high-shipping-no-completed-dashboard",
   "version": "1.0.0",
   "private": true,
-  "description": "TMG abandoned cart lead recovery dashboard backed by the Data Hub API.",
+  "description": "TMG high shipping not completed draft dashboard backed by the Data Hub API.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

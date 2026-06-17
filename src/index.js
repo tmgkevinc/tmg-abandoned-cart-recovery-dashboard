@@ -680,7 +680,9 @@ function normalizeDraft(record, market, productLookup) {
     margin: marginSummary.margin,
     marginPercent: marginSummary.marginPercent,
     marginWithoutShipping: marginSummary.marginWithoutShipping,
+    marginWithoutShippingPercent: marginSummary.marginWithoutShippingPercent,
     marginWithShipping: marginSummary.marginWithShipping,
+    marginWithShippingPercent: marginSummary.marginWithShippingPercent,
     currency,
     checkoutPhone: phone,
     checkoutEmail: email,
@@ -714,7 +716,17 @@ function normalizeDraft(record, market, productLookup) {
 
 function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippingIncludedInSubtotal = false) {
   const costs = lineItems.map((item) => item.totalCost).filter((value) => value !== null && value !== undefined);
-  if (!costs.length) return { totalCost: null, margin: null, marginPercent: null, marginWithoutShipping: null, marginWithShipping: null };
+  if (!costs.length) {
+    return {
+      totalCost: null,
+      margin: null,
+      marginPercent: null,
+      marginWithoutShipping: null,
+      marginWithoutShippingPercent: null,
+      marginWithShipping: null,
+      marginWithShippingPercent: null,
+    };
+  }
   const totalCost = costs.reduce((sum, value) => sum + Number(value || 0), 0);
   const subtotalRevenue = Number(subtotal || 0);
   const shipping = Number(shippingAmount || 0);
@@ -722,8 +734,17 @@ function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippin
   const revenueWithShipping = shippingIncludedInSubtotal ? subtotalRevenue : subtotalRevenue + shipping;
   const marginWithoutShipping = revenueWithoutShipping - totalCost;
   const marginWithShipping = revenueWithShipping - totalCost;
-  const marginPercent = revenueWithoutShipping ? marginWithoutShipping / revenueWithoutShipping : null;
-  return { totalCost, margin: marginWithoutShipping, marginPercent, marginWithoutShipping, marginWithShipping };
+  const marginWithoutShippingPercent = revenueWithoutShipping ? marginWithoutShipping / revenueWithoutShipping : null;
+  const marginWithShippingPercent = revenueWithShipping ? marginWithShipping / revenueWithShipping : null;
+  return {
+    totalCost,
+    margin: marginWithoutShipping,
+    marginPercent: marginWithoutShippingPercent,
+    marginWithoutShipping,
+    marginWithoutShippingPercent,
+    marginWithShipping,
+    marginWithShippingPercent,
+  };
 }
 
 function getDraftShippingLine(raw) {
@@ -815,7 +836,11 @@ function normalizeLineItem(item) {
       item.discountedUnitPriceSet?.shopMoney?.amount,
   );
   const currentPrice = number(item.current_price || item.currentPrice || item.variant_price || item.variant?.price || item.product?.price);
-  const cost = nullableNumber(item.cost || item.rate_sheet_cost || item.rateSheetCost || item.landed_cost || item.unit_cost || item.product_cost);
+  const landedCost = nullableNumber(item.landed_cost || item.landedCost || item.aj_landed_cost || item.ajLandedCost);
+  const freightShippingBudget = nullableNumber(item.freight_shipping_budget || item.freightShippingBudget || item.dd_freight_shipping_budget || item.ddFreightShippingBudget);
+  const marginFeeRate = nullableNumber(item.margin_fee_rate || item.marginFeeRate) ?? 0.18;
+  const estimatedCost = nullableNumber(item.estimated_cost || item.estimatedCost);
+  const cost = nullableNumber(item.cost || item.rate_sheet_cost || item.rateSheetCost || item.unit_cost || item.product_cost) ?? estimatedCost ?? landedCost;
   const inventory = number(
     item.inventory ??
       item.inventory_quantity ??
@@ -828,17 +853,25 @@ function normalizeLineItem(item) {
       item.available,
   );
   const productUrl = text(item.product_url || item.productUrl || item.url || "");
-  return addMarginFields({ title, sku, quantity, checkoutPrice, currentPrice, cost, inventory, productUrl });
+  return addMarginFields({ title, sku, quantity, checkoutPrice, currentPrice, cost, landedCost, freightShippingBudget, marginFeeRate, estimatedCost, inventory, productUrl });
 }
 
 function addMarginFields(item) {
-  const cost = item.cost;
+  const landedCost = item.landedCost;
+  const freightShippingBudget = item.freightShippingBudget;
+  const marginFeeRate = item.marginFeeRate ?? 0.18;
+  const fallbackCost = item.cost;
   const quantity = Number(item.quantity || 1);
-  const revenue = Number(item.checkoutPrice || 0) * quantity;
-  const totalCost = cost === null || cost === undefined ? null : Number(cost || 0) * quantity;
+  const unitPrice = Number(item.checkoutPrice || item.currentPrice || 0);
+  const revenue = unitPrice * quantity;
+  const hasRateSheetCost = landedCost !== null && landedCost !== undefined && freightShippingBudget !== null && freightShippingBudget !== undefined;
+  const unitEstimatedCost = hasRateSheetCost
+    ? unitPrice * Number(marginFeeRate || 0.18) + Number(freightShippingBudget || 0) + Number(landedCost || 0)
+    : fallbackCost;
+  const totalCost = unitEstimatedCost === null || unitEstimatedCost === undefined ? null : Number(unitEstimatedCost || 0) * quantity;
   const margin = totalCost === null ? null : revenue - totalCost;
   const marginPercent = margin === null || !revenue ? null : margin / revenue;
-  return { ...item, totalCost, margin, marginPercent };
+  return { ...item, cost: unitEstimatedCost, landedCost, freightShippingBudget, marginFeeRate, totalCost, margin, marginPercent };
 }
 
 function buildProductLookupByMarket(results) {
@@ -858,7 +891,10 @@ function buildProductLookupFromProductLookupRecords(records, market) {
     lookup.set(sku, {
       title: text(record.product_title || record.title),
       currentPrice: number(record.current_price || record.price),
-      cost: nullableNumber(record.cost || record.rate_sheet_cost || record.landed_cost || record.unit_cost || record.product_cost),
+      cost: nullableNumber(record.estimated_cost || record.cost || record.rate_sheet_cost || record.unit_cost || record.product_cost),
+      landedCost: nullableNumber(record.landed_cost || record.landedCost),
+      freightShippingBudget: nullableNumber(record.freight_shipping_budget || record.freightShippingBudget),
+      marginFeeRate: nullableNumber(record.margin_fee_rate || record.marginFeeRate) ?? 0.18,
       inventory: getLookupInventory(record),
       productUrl: text(record.product_url) || getProductUrlFromHandle(record.handle, market),
     });
@@ -931,6 +967,9 @@ function enrichLineItemFromProducts(item, productLookup) {
     title: item.title || product.title,
     currentPrice: product.currentPrice ?? item.currentPrice,
     cost: product.cost ?? item.cost,
+    landedCost: product.landedCost ?? item.landedCost,
+    freightShippingBudget: product.freightShippingBudget ?? item.freightShippingBudget,
+    marginFeeRate: product.marginFeeRate ?? item.marginFeeRate,
     inventory: product.inventory ?? item.inventory,
     productUrl: product.productUrl || item.productUrl,
   });

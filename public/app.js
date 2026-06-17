@@ -166,7 +166,6 @@ async function initialize() {
 }
 
 async function loadAllData() {
-  await loadLeads();
   await loadDrafts();
 }
 
@@ -456,64 +455,64 @@ function renderDraftSummary(summary) {
 }
 
 function renderRulesFunnel() {
-  const counts = getFunnelCounts(state.leads);
+  const counts = getDraftFunnelCounts(state.drafts);
   const readyRate = counts.all ? Math.round((counts.ready / counts.all) * 100) : 0;
   const steps = [
     {
-      label: "All abandoned carts",
+      label: "Current-year drafts",
       count: counts.all,
       countType: "total",
-      rule: "All abandoned cart leads loaded from Data Hub for US, CA, and AU.",
-      outcome: "This is the starting pool before any lead selection gate runs.",
+      rule: "Only draft orders created in the current year are included in this dashboard.",
+      outcome: "This is the starting pool before draft recovery gates run.",
     },
     {
-      label: "Age gate",
-      count: counts.tooNew,
-      rule: "Leads created less than 72 hours ago are held out first. They can become Valid once they pass 72 hours.",
-      outcome: "Filtered status: Too New.",
+      label: "Shopify draft status gate",
+      count: counts.completed,
+      rule: "Completed drafts are removed. Only not-completed Shopify draft orders remain.",
+      outcome: "Filtered status: Completed.",
     },
     {
-      label: "Phone gate",
-      count: counts.noContact,
-      rule: "Lead must have checkout phone. Checkout email is helpful but not required. Leads older than 30 days remain Valid when they pass the other gates.",
-      outcome: "Filtered status: No Phone.",
+      label: "Manual shipping gate",
+      count: counts.noManualShipping,
+      rule: "Draft must include a manually added shipping charge from Shopify draft amount data.",
+      outcome: "Filtered status: No Manual Shipping.",
     },
     {
-      label: "Duplicate gate",
-      count: counts.duplicate,
-      rule: "For the same customer name and same product set, keep only the newest checkout.",
-      outcome: "Filtered status: Duplicate.",
+      label: "Shipping amount gate",
+      count: counts.lowShipping,
+      rule: "Manual shipping must be greater than 100.",
+      outcome: "Filtered status: Low Shipping.",
     },
     {
-      label: "Recovered gate",
-      count: counts.recovered,
-      rule: "If Data Hub marks the abandoned cart as recovered, remove it from active lead selection. If the recovered order happened after a prior assignment, it can be counted as Recovered by Sales; otherwise it is Recovered Auto.",
-      outcome: "Filtered status: Recovered.",
+      label: "Dealer sales gate",
+      count: counts.dealerSales,
+      rule: "Dealer sales drafts are visible for review but are not counted as valid recovery opportunities.",
+      outcome: "Filtered status: Dealer Sales.",
     },
     {
       label: "Inventory gate",
       count: counts.noInventory,
-      rule: "At least one non-PP / non-PSP / non-surcharge product in the cart must have usable inventory from Data Hub product inventory data.",
+      rule: "At least one non-surcharge product in the draft must have usable inventory from Data Hub product inventory data.",
       outcome: "Filtered status: No Inventory.",
     },
     {
-      label: "Valid before manual review",
-      count: counts.afterInventory,
+      label: "Margin cost check",
+      count: 0,
       countType: "total",
-      rule: "Leads that pass age, phone, duplicate, recovered, and inventory gates become valid candidates before manual review.",
-      outcome: "Manual review can still remove spam, tests, bad addresses, or leads sales already rejected.",
+      rule: "Margin uses product selling price minus 18%, minus freight shipping budget, minus landed cost. This gate is informational only for now.",
+      outcome: "This check does not remove drafts yet.",
     },
     {
       label: "Manually marked gate",
       count: counts.manualMarked,
-      rule: "Admin or sales can manually mark a lead Invalid after review, for reasons like spam, internal test, fake customer, bad fit, or not interested.",
-      outcome: `${counts.manualMarked.toLocaleString()} leads are currently manually marked out.`,
+      rule: "Admin or sales can manually mark a draft Invalid after review.",
+      outcome: `${counts.manualMarked.toLocaleString()} drafts are currently manually marked out.`,
     },
     {
-      label: "Valid leads",
+      label: "Valid drafts",
       count: counts.ready,
       countType: "total",
-      rule: "Final Valid leads are the active abandoned cart leads available for assignment.",
+      rule: "Final Valid drafts are the high-shipping not-completed drafts available for follow-up.",
       outcome: "This count should match the Valid filter when no other filters are applied.",
     },
   ];
@@ -537,8 +536,8 @@ function renderRulesFunnel() {
 
   els.rulesFunnel.innerHTML = `
     <div class="rules-summary">
-      <article><span>Abandoned carts</span><strong>${counts.all.toLocaleString()}</strong></article>
-      <article><span>Valid leads</span><strong>${counts.ready.toLocaleString()}</strong></article>
+      <article><span>Current-year drafts</span><strong>${counts.all.toLocaleString()}</strong></article>
+      <article><span>Valid drafts</span><strong>${counts.ready.toLocaleString()}</strong></article>
       <article><span>Removed or inactive</span><strong>${(counts.all - counts.ready).toLocaleString()}</strong></article>
       <article><span>Valid rate</span><strong>${readyRate}%</strong></article>
     </div>
@@ -635,6 +634,7 @@ function getDraftFunnelCounts(drafts) {
     completed: 0,
     noManualShipping: 0,
     lowShipping: 0,
+    dealerSales: 0,
     noInventory: 0,
     manualMarked: 0,
     ready: 0,
@@ -644,6 +644,7 @@ function getDraftFunnelCounts(drafts) {
     if (draft.completed) counts.completed += 1;
     if (!draft.hasManualShipping) counts.noManualShipping += 1;
     if (Number(draft.manualShippingPrice || 0) <= 100) counts.lowShipping += 1;
+    if (draft.funnelStatus === "Dealer Sales") counts.dealerSales += 1;
     if (draft.funnelStatus === "Needs Review") counts.noInventory += 1;
     if (draft.leadStatus !== "Valid" && draft.funnelStatus !== "Needs Review") counts.manualMarked += 1;
     if (draft.leadStatus === "Valid") counts.ready += 1;
@@ -981,8 +982,8 @@ function renderDraftRow(draft) {
       ${cell(formatMoney(draft.subtotal, draft.currency))}
       ${cell(formatOptionalMoney(draft.totalCost, draft.currency))}
       ${cell(formatMoney(draft.manualShippingPrice || 0, draft.currency))}
-      ${cell(formatOptionalMoney(draft.marginWithoutShipping ?? draft.margin, draft.currency))}
-      ${cell(formatOptionalMoney(draft.marginWithShipping, draft.currency))}
+      ${cell(formatMarginWithPercent(draft.marginWithoutShipping ?? draft.margin, draft.marginWithoutShippingPercent ?? draft.marginPercent, draft.currency))}
+      ${cell(formatMarginWithPercent(draft.marginWithShipping, draft.marginWithShippingPercent, draft.currency))}
       ${cell(draft.name)}
       ${cell(draft.checkoutPhone)}
       ${cell(draft.checkoutEmail)}
@@ -1413,8 +1414,8 @@ function getDraftExportValues(draft) {
     draft.subtotal,
     draft.totalCost ?? "",
     draft.manualShippingPrice || 0,
-    draft.marginWithoutShipping ?? draft.margin ?? "",
-    draft.marginWithShipping ?? "",
+    formatMarginWithPercent(draft.marginWithoutShipping ?? draft.margin, draft.marginWithoutShippingPercent ?? draft.marginPercent, draft.currency),
+    formatMarginWithPercent(draft.marginWithShipping, draft.marginWithShippingPercent, draft.currency),
     draft.name,
     draft.checkoutPhone,
     draft.checkoutEmail,
@@ -1549,6 +1550,13 @@ function formatOptionalMoney(value, currency) {
 function formatOptionalPercent(value) {
   if (value === null || value === undefined || value === "") return "";
   return `${Math.round(Number(value) * 1000) / 10}%`;
+}
+
+function formatMarginWithPercent(amount, percent, currency) {
+  const amountText = formatOptionalMoney(amount, currency);
+  const percentText = formatOptionalPercent(percent);
+  if (!amountText) return "";
+  return percentText ? `${amountText} (${percentText})` : amountText;
 }
 
 function formatMarketAmounts(amountsByMarket) {

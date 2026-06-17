@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TMG Abandoned Cart Leads Recovery</title>
-    <link rel="stylesheet" href="/styles.css?v=20260616-2115" />
+    <title>TMG High Shipping Not Completed Draft</title>
+    <link rel="stylesheet" href="/styles.css?v=20260617-0108" />
   </head>
   <body>
     <div id="loginOverlay" class="login-overlay">
       <form id="loginForm" class="login-card">
         <p class="eyebrow">TMG Data Hub</p>
-        <h1>TMG Abandoned Cart Leads Recovery</h1>
+        <h1>TMG High Shipping Not Completed Draft</h1>
         <label>
           <span>User</span>
           <select id="loginUser">
@@ -32,8 +32,8 @@
     <main class="app-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Lead Checks and Assignment</p>
-          <h1>TMG Abandoned Cart Leads Recovery</h1>
+          <p class="eyebrow">Draft Checks and Recovery</p>
+          <h1>TMG High Shipping Not Completed Draft</h1>
           <p id="dataFreshness" class="subtle">Data Hub status has not loaded yet.</p>
         </div>
         <div class="user-panel">
@@ -43,12 +43,12 @@
       </header>
 
       <nav class="tab-nav" aria-label="Dashboard tabs">
-        <button class="tab-button active" type="button" data-tab="workspace">Lead Workspace</button>
-        <button class="tab-button" type="button" data-tab="drafts" hidden>Draft Recovery</button>
+        <button class="tab-button" type="button" data-tab="workspace" hidden>Lead Workspace</button>
+        <button class="tab-button active" type="button" data-tab="drafts">Draft Recovery</button>
         <button class="tab-button" type="button" data-tab="rules">Rules & Funnel</button>
       </nav>
 
-      <section id="workspaceTab" class="tab-panel active">
+      <section id="workspaceTab" class="tab-panel">
         <section id="marketSummary" class="metric-grid" aria-label="Market summary"></section>
 
         <section id="salesPersonalSummary" class="sales-personal-summary" aria-label="Sales personal summary"></section>
@@ -64,11 +64,11 @@
         <section class="panel qualified-panel">
           <div class="panel-header">
             <div>
-              <h2>Abandoned Cart Leads</h2>
-              <p id="qualifiedSubtitle">Load Data Hub leads to begin.</p>
+              <h2>Draft Candidates</h2>
+              <p id="qualifiedSubtitle">Load Data Hub drafts to begin.</p>
             </div>
           </div>
-          <section class="controls lead-panel-controls" aria-label="Abandoned cart lead filters">
+          <section class="controls lead-panel-controls" aria-label="Draft candidate filters">
             <label>
               <span>Market</span>
               <select id="marketFilter">
@@ -186,7 +186,7 @@
         </section>
       </section>
 
-      <section id="draftsTab" class="tab-panel">
+      <section id="draftsTab" class="tab-panel active">
         <section id="draftSummary" class="metric-grid" aria-label="Draft recovery summary"></section>
 
         <section class="controls" aria-label="Draft filters">
@@ -225,7 +225,7 @@
         <section class="panel">
           <div class="panel-header">
             <div>
-              <h2>Draft Recovery Leads</h2>
+              <h2>High Shipping Not Completed Drafts</h2>
               <p id="draftSubtitle">Draft orders with manual shipping will load from Data Hub.</p>
             </div>
           </div>
@@ -251,7 +251,7 @@
       </section>
     </main>
 
-    <script src="/app.js?v=20260616-2115"></script>
+    <script src="/app.js?v=20260617-0215"></script>
   </body>
 </html>
 
