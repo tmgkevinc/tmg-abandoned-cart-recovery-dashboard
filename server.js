@@ -770,9 +770,8 @@ function getDraftShippingLine(raw) {
 
 function hasManualShippingLine(line) {
   if (!line || typeof line !== "object") return false;
-  const label = text(line.title || line.name || line.code || line.custom || line.handle);
   const price = number(line.price || line.price_set?.shop_money?.amount || line.priceSet?.shopMoney?.amount);
-  return Boolean(label) || price > 0;
+  return price > 0;
 }
 
 function isManualShippingLineItem(item) {
@@ -790,6 +789,7 @@ function applyDraftOpportunityStatus(draft) {
     ? rawSavedLeadStatus
     : "";
   const blockedReasons = [];
+  if (Number(draft.manualShippingPrice || 0) <= 100) blockedReasons.push("Shipping is 100 or less");
   if (!hasProduct || !hasInventory) blockedReasons.push("No product with known inventory");
 
   const leadStatus = savedLeadStatus || (blockedReasons.length ? "Invalid" : "Valid");
