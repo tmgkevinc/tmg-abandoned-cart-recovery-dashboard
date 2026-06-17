@@ -21,34 +21,37 @@ const files = {
   workerJs: read(path.join("src", "index.js")),
 };
 
-if (!files.wrangler.includes('"name": "high-shipping-no-completed-dashboard"')) {
-  fail("wrangler.jsonc must deploy only to high-shipping-no-completed-dashboard.");
+if (!files.wrangler.includes('"name": "tmg-abandoned-cart-recovery-dashboard"')) {
+  fail("wrangler.jsonc must deploy only to tmg-abandoned-cart-recovery-dashboard.");
 }
 
-if (!files.packageJson.includes('"name": "tmg-high-shipping-no-completed-dashboard"')) {
-  fail("package.json must use the high shipping draft dashboard package name.");
+if (!files.packageJson.includes('"name": "tmg-abandoned-cart-recovery-dashboard"')) {
+  fail("package.json must use the abandoned cart dashboard package name.");
 }
 
-if (!files.indexHtml.includes("TMG High Shipping Not Completed Draft")) {
-  fail("public/index.html must render the high shipping draft workspace.");
+if (!files.indexHtml.includes("TMG Abandoned Cart Leads Recovery")) {
+  fail("public/index.html must render the lead recovery workspace.");
 }
 
-if (!files.indexHtml.includes("High Shipping Not Completed Drafts")) {
-  fail("public/index.html must include the high shipping drafts table.");
+if (!files.indexHtml.includes("Abandoned Cart Leads")) {
+  fail("public/index.html must include the abandoned cart leads table.");
 }
 
-if (!files.appJs.includes("/api/drafts?market=US,CA,AU&limit=3000")) {
-  fail("public/app.js must call the high shipping drafts API.");
+if (!/await\s+loadLeads\(\);/.test(files.appJs)) {
+  fail("public/app.js must load abandoned cart leads.");
 }
 
-if (!files.serverJs.includes("/api/data-hub/reports/draft-recovery") || !files.workerJs.includes("/api/data-hub/reports/draft-recovery")) {
-  fail("server and worker must read the Data Hub draft-recovery report.");
+if (!files.appJs.includes('/api/leads?market=US,CA,AU&limit=5000&all=1')) {
+  fail("public/app.js must call the abandoned cart leads API.");
 }
 
 const forbiddenMarkers = [
-  "TMG Abandoned Cart Leads Recovery",
-  "Abandoned Cart Leads",
-  "tmg-abandoned-cart-recovery-dashboard",
+  "TMG High Shipping Not Completed Draft",
+  "High Shipping Not Completed",
+  "high-shipping-no-completed-dashboard",
+  "tmg-high-shipping-no-completed-dashboard",
+  '"name": "high-shipping-no-completed-dashboard"',
+  '"name": "tmg-high-shipping-no-completed-dashboard"',
 ];
 
 for (const [name, content] of Object.entries(files)) {
@@ -59,20 +62,16 @@ for (const [name, content] of Object.entries(files)) {
   }
 }
 
-if (!files.serverJs.includes("high-shipping-drafts") || !files.workerJs.includes("high-shipping-drafts")) {
-  fail("server and worker must identify the high shipping drafts source.");
+if (!files.serverJs.includes("abandoned-cart-leads-enriched") || !files.workerJs.includes("abandoned-cart-leads-enriched")) {
+  fail("server and worker must read abandoned-cart-leads-enriched.");
 }
 
-if (/async function loadAllData\(\)\s*{\s*await loadLeads\(\);/m.test(files.appJs)) {
-  fail("public/app.js must not load abandoned cart leads for this draft dashboard.");
-}
-
-if (!files.appJs.includes("formatMarginWithPercent")) {
-  fail("public/app.js must render margin values with margin percentages.");
+if (!files.serverJs.includes("abandoned_cart_lead_assignments") || !files.workerJs.includes("abandoned_cart_lead_assignments")) {
+  fail("server and worker must read abandoned_cart_lead_assignments.");
 }
 
 if (process.exitCode) {
   process.exit();
 }
 
-console.log("[dashboard identity check] High shipping draft dashboard identity verified.");
+console.log("[dashboard identity check] Abandoned cart dashboard identity verified.");
