@@ -67,7 +67,7 @@ export default {
       if (url.pathname === "/api/assignments" && request.method === "GET") return jsonResponse(200, await readAssignments());
       if (url.pathname === "/api/assignments" && request.method === "POST") return await handleSaveAssignment(request);
 
-      return env.ASSETS.fetch(request);
+      return await serveAsset(request, env);
     } catch (error) {
       console.error(error);
       return jsonResponse(500, { error: "An unknown server error occurred.", detail: error.message });
@@ -88,6 +88,20 @@ function configureRuntime(env) {
 
 function jsonResponse(status, payload) {
   return new Response(JSON.stringify(payload), { status, headers: { "Content-Type": "application/json; charset=utf-8" } });
+}
+
+async function serveAsset(request, env) {
+  const response = await env.ASSETS.fetch(request);
+  const url = new URL(request.url);
+  const headers = new Headers(response.headers);
+  if (url.pathname === "/" || /\.(?:html|js|css)$/i.test(url.pathname)) {
+    headers.set("Cache-Control", "no-store, max-age=0");
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 function getHeader(req, name) {
@@ -169,18 +183,23 @@ async function handleDrafts(url) {
     .filter((market) => COUNTRY_META[market]);
   const limit = Math.max(25, Math.min(Number(url.searchParams.get("limit") || 10000), 50000));
   const startedAt = new Date();
+  const currentYear = startedAt.getFullYear();
+  const perMarketLimit = Math.max(25, Math.ceil(limit / Math.max(markets.length, 1)));
 
   const draftResults = await Promise.all(markets.map(async (market) => ({
     market,
-    records: await fetchDraftOrders(market, limit),
+    records: await fetchDraftOrders(market, perMarketLimit),
   })));
-  const productLookup = await buildProductLookupFromCheckouts(draftResults);
+  const productLookup = {};
   const assignments = await readAssignments(markets, 10000);
-  const drafts = draftResults
+  const normalizedDrafts = draftResults
     .flatMap((result) => result.records.map((record) => ({ record, market: result.market })))
     .map(({ record, market }) => normalizeDraft(record, market, productLookup))
     .filter((draft) => markets.includes(draft.market))
+    .filter((draft) => isCurrentYearDraft(draft, currentYear));
+  const drafts = normalizedDrafts
     .filter((draft) => !draft.completed && draft.hasManualShipping)
+    .filter(hasHighManualShippingCost)
     .map((draft) => applyAssignment(draft, assignments))
     .map(applyDraftOpportunityStatus)
     .sort(sortBySubtotalDesc);
@@ -190,8 +209,12 @@ async function handleDrafts(url) {
     fetchedAt: startedAt.toISOString(),
     count: drafts.length,
     markets,
+    year: currentYear,
+    limit,
+    perMarketLimit,
     source: "draft-recovery",
     summary: buildDraftSummary(drafts),
+    funnel: buildDraftFunnelSummary(normalizedDrafts, drafts),
     salesUsers,
     drafts,
   });
@@ -730,6 +753,10 @@ function hasManualShippingLine(line) {
   return Boolean(label) || price > 0;
 }
 
+function hasHighManualShippingCost(draft) {
+  return Number(draft.manualShippingPrice || 0) > 100;
+}
+
 function isManualShippingLineItem(item) {
   const sku = text(item.sku).toUpperCase();
   const title = text(item.title).toUpperCase();
@@ -1158,6 +1185,12 @@ function booleanValue(value) {
   return ["true", "1", "yes", "y"].includes(text(value).toLowerCase());
 }
 
+function isCurrentYearDraft(draft, year) {
+  const timestamp = Date.parse(draft.createdAt || "");
+  if (!Number.isFinite(timestamp)) return false;
+  return new Date(timestamp).getFullYear() === year;
+}
+
 function buildSummary(leads) {
   const byMarket = {};
   const bySales = {};
@@ -1243,6 +1276,38 @@ function buildDraftSummary(drafts) {
     }
   }
   return { byMarket, latestCreatedAt };
+}
+
+function buildDraftFunnelSummary(currentYearDrafts, visibleDrafts) {
+  const counts = {
+    all: currentYearDrafts.length,
+    completed: 0,
+    noManualShipping: 0,
+    lowShipping: 0,
+    noInventory: 0,
+    manualMarked: 0,
+    ready: 0,
+  };
+
+  for (const draft of currentYearDrafts) {
+    if (draft.completed) {
+      counts.completed += 1;
+      continue;
+    }
+    if (!draft.hasManualShipping) {
+      counts.noManualShipping += 1;
+      continue;
+    }
+    if (!hasHighManualShippingCost(draft)) counts.lowShipping += 1;
+  }
+
+  for (const draft of visibleDrafts) {
+    if (draft.funnelStatus === "Needs Review") counts.noInventory += 1;
+    if (draft.leadStatus !== "Valid" && draft.funnelStatus !== "Needs Review") counts.manualMarked += 1;
+    if (draft.leadStatus === "Valid") counts.ready += 1;
+  }
+
+  return counts;
 }
 
 function incrementAgeBucket(buckets, ageHours) {
