@@ -970,6 +970,13 @@ td:nth-child(60) {
   border-right: 3px solid #3f4f63;
 }
 
+.selectable-lead-table th:nth-child(14),
+.selectable-lead-table td:nth-child(14),
+.selectable-lead-table th:nth-child(15),
+.selectable-lead-table td:nth-child(15) {
+  border-left: 1px solid var(--border);
+}
+
 .selectable-lead-table th:nth-child(24),
 .selectable-lead-table td:nth-child(24),
 .selectable-lead-table th:nth-child(30),
