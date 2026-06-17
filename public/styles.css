@@ -908,6 +908,11 @@ th:nth-child(6) {
   border-right: 3px solid #3f4f63;
 }
 
+.lead-table:not(.selectable-lead-table) th:nth-child(19),
+.lead-table:not(.selectable-lead-table) td:nth-child(19) {
+  border-left: 1px solid var(--border);
+}
+
 th:nth-child(9),
 td:nth-child(9),
 th:nth-child(14),
@@ -973,7 +978,9 @@ td:nth-child(60) {
 .selectable-lead-table th:nth-child(14),
 .selectable-lead-table td:nth-child(14),
 .selectable-lead-table th:nth-child(15),
-.selectable-lead-table td:nth-child(15) {
+.selectable-lead-table td:nth-child(15),
+.selectable-lead-table th:nth-child(20),
+.selectable-lead-table td:nth-child(20) {
   border-left: 1px solid var(--border);
 }
 
