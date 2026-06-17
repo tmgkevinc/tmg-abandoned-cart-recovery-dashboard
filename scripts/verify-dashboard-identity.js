@@ -21,36 +21,54 @@ const files = {
   workerJs: read(path.join("src", "index.js")),
 };
 
-if (!files.wrangler.includes('"name": "high-shipping-no-completed-dashboard"')) {
-  fail("wrangler.jsonc must deploy only to high-shipping-no-completed-dashboard.");
+if (!files.wrangler.includes('"name": "tmg-abandoned-cart-recovery-dashboard"')) {
+  fail("wrangler.jsonc must deploy only to tmg-abandoned-cart-recovery-dashboard.");
 }
 
-if (!files.packageJson.includes('"name": "tmg-high-shipping-no-completed-dashboard"')) {
-  fail("package.json must use the high shipping draft dashboard package name.");
+if (!files.packageJson.includes('"name": "tmg-abandoned-cart-recovery-dashboard"')) {
+  fail("package.json must use the abandoned cart dashboard package name.");
 }
 
-if (!files.indexHtml.includes("TMG High Shipping Not Completed Draft")) {
-  fail("public/index.html must render the high shipping draft dashboard.");
+if (!files.indexHtml.includes("TMG Lead Recovery Workspace")) {
+  fail("public/index.html must render the lead recovery workspace.");
 }
 
-if (!files.indexHtml.includes('data-tab="drafts"')) {
-  fail("public/index.html must default to the draft workspace tab.");
+if (!files.indexHtml.includes("Abandoned Cart Leads")) {
+  fail("public/index.html must include the abandoned cart leads table.");
 }
 
-if (!files.appJs.includes("limit=3000")) {
-  fail("public/app.js must keep draft API requests within Worker limits.");
+if (!/await\s+loadLeads\(\);\s*await\s+loadDrafts\(\);/.test(files.appJs)) {
+  fail("public/app.js must load abandoned cart leads before draft data.");
 }
 
-if (!files.serverJs.includes("draft-recovery") || !files.workerJs.includes("draft-recovery")) {
-  fail("server and worker must read draft-recovery.");
+if (!files.appJs.includes('/api/leads?market=US,CA,AU&limit=5000&all=1')) {
+  fail("public/app.js must call the abandoned cart leads API.");
 }
 
-if (!files.serverJs.includes("isCurrentYearDraft") || !files.workerJs.includes("isCurrentYearDraft")) {
-  fail("server and worker must apply current-year draft filtering.");
+const forbiddenMarkers = [
+  "TMG High Shipping Not Completed Draft",
+  "High Shipping Not Completed",
+  "high-shipping-no-completed-dashboard",
+];
+
+for (const [name, content] of Object.entries(files)) {
+  for (const marker of forbiddenMarkers) {
+    if (content.includes(marker)) {
+      fail(`${name} contains forbidden dashboard marker: ${marker}`);
+    }
+  }
+}
+
+if (!files.serverJs.includes("abandoned-cart-leads-enriched") || !files.workerJs.includes("abandoned-cart-leads-enriched")) {
+  fail("server and worker must read abandoned-cart-leads-enriched.");
+}
+
+if (!files.serverJs.includes("abandoned_cart_lead_assignments") || !files.workerJs.includes("abandoned_cart_lead_assignments")) {
+  fail("server and worker must read abandoned_cart_lead_assignments.");
 }
 
 if (process.exitCode) {
   process.exit();
 }
 
-console.log("[dashboard identity check] High shipping draft dashboard identity verified.");
+console.log("[dashboard identity check] Abandoned cart dashboard identity verified.");
