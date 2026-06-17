@@ -903,6 +903,11 @@ th:nth-child(6) {
   min-width: 220px;
 }
 
+.lead-table:not(.selectable-lead-table) th:nth-child(6),
+.lead-table:not(.selectable-lead-table) td:nth-child(6) {
+  border-right: 3px solid #3f4f63;
+}
+
 th:nth-child(9),
 td:nth-child(9),
 th:nth-child(14),
@@ -942,6 +947,26 @@ th:nth-child(54),
 td:nth-child(54),
 th:nth-child(60),
 td:nth-child(60) {
+  border-right: 3px solid #3f4f63;
+}
+
+.selectable-lead-table th:nth-child(9),
+.selectable-lead-table td:nth-child(9),
+.selectable-lead-table th:nth-child(14),
+.selectable-lead-table td:nth-child(14),
+.selectable-lead-table th:nth-child(19),
+.selectable-lead-table td:nth-child(19) {
+  border-left: 1px solid var(--border);
+}
+
+.selectable-lead-table th:nth-child(7),
+.selectable-lead-table td:nth-child(7),
+.selectable-lead-table th:nth-child(9),
+.selectable-lead-table td:nth-child(9),
+.selectable-lead-table th:nth-child(14),
+.selectable-lead-table td:nth-child(14),
+.selectable-lead-table th:nth-child(19),
+.selectable-lead-table td:nth-child(19) {
   border-right: 3px solid #3f4f63;
 }
 
