@@ -318,7 +318,7 @@ async function loadLeads() {
 async function loadDrafts() {
   try {
     const response = await fetch("/api/drafts?market=US,CA,AU&limit=3000", { cache: "no-store" });
-    const data = await response.json();
+    const data = await parseJsonResponse(response, "Draft API");
     if (!response.ok) throw new Error(data.error || "Could not load drafts.");
     state.salesUsers = data.salesUsers || state.salesUsers;
     state.drafts = data.drafts || [];
@@ -334,6 +334,20 @@ async function loadDrafts() {
     renderRulesFunnel();
     applyFilters();
     els.draftSubtitle.textContent = error.message;
+  }
+}
+
+async function parseJsonResponse(response, label = "Dashboard API") {
+  const contentType = response.headers.get("content-type") || "";
+  const bodyText = await response.text();
+  if (!contentType.includes("application/json")) {
+    const preview = bodyText.replace(/\s+/g, " ").trim().slice(0, 120);
+    throw new Error(`${label} returned ${response.status} ${response.statusText || ""} as ${contentType || "unknown content type"} instead of JSON. ${preview}`);
+  }
+  try {
+    return bodyText ? JSON.parse(bodyText) : {};
+  } catch (error) {
+    throw new Error(`${label} returned invalid JSON. ${error.message}`);
   }
 }
 
