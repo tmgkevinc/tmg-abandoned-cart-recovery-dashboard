@@ -244,10 +244,10 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 8px 0 0;
-  padding: 10px 14px;
+  margin: 0;
+  padding: 9px 14px;
   border: 1px solid #c8d7ea;
-  border-width: 1px 0;
+  border-width: 0 0 1px;
   background: linear-gradient(180deg, #f6f9ff 0%, #eef5ff 100%);
 }
 
@@ -273,7 +273,7 @@ textarea {
 }
 
 .bulk-assign-bar label {
-  width: 190px;
+  width: 180px;
 }
 
 .bulk-assign-bar label span {
@@ -341,6 +341,16 @@ textarea:focus {
   border-radius: 10px;
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+
+.qualified-panel .lead-panel-controls {
+  grid-template-columns: 120px 140px 120px 140px minmax(260px, 1fr) auto;
+  margin: 0;
+  padding: 12px 14px;
+  border-width: 1px 0;
+  border-radius: 0;
+  background: #fbfdff;
+  box-shadow: none;
 }
 
 .detail-controls {
@@ -444,7 +454,7 @@ textarea:focus {
 }
 
 .qualified-panel .panel-header {
-  padding: 12px 16px 8px;
+  padding: 14px 16px 10px;
   border-bottom: 0;
 }
 
