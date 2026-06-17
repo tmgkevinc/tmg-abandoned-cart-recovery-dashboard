@@ -182,11 +182,13 @@ async function handleDrafts(url) {
     .map((market) => market.trim().toUpperCase())
     .filter((market) => COUNTRY_META[market]);
   const limit = Math.max(25, Math.min(Number(url.searchParams.get("limit") || 10000), 50000));
+  const offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
+  const paged = url.searchParams.has("offset");
   const startedAt = new Date();
 
   const draftResults = await Promise.all(markets.map(async (market) => ({
     market,
-    records: await fetchDraftOrders(market, limit),
+    ...(paged ? await fetchDraftOrdersPage(market, limit, offset) : { records: await fetchDraftOrders(market, limit) }),
   })));
   const assignments = await readAssignments(markets, 10000);
   const drafts = draftResults
@@ -203,6 +205,8 @@ async function handleDrafts(url) {
     fetchedAt: startedAt.toISOString(),
     count: drafts.length,
     markets,
+    hasMore: draftResults.some((result) => result.hasMore),
+    nextOffset: paged ? offset + Math.max(0, ...draftResults.map((result) => result.records.length)) : null,
     source: "draft-recovery",
     summary: buildDraftSummary(drafts),
     salesUsers,
@@ -330,6 +334,34 @@ async function fetchDraftOrders(country, limit) {
   }
 
   return rows;
+}
+
+async function fetchDraftOrdersPage(country, limit, offset = 0) {
+  const pageSize = Math.min(Math.max(Number(limit || 250), 1), 500);
+  const params = new URLSearchParams({
+    country,
+    limit: String(pageSize),
+    offset: String(Math.max(0, Number(offset || 0))),
+  });
+  const response = await fetch(`${DATA_HUB_BASE_URL}/api/data-hub/reports/draft-recovery?${params}`, {
+    headers: { "x-api-key": DATA_HUB_API_KEY },
+  });
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch (error) {
+    throw new Error(`Data Hub returned invalid JSON for draft-recovery/${country}.`);
+  }
+  if (!response.ok) {
+    throw new Error(payload.error || `Data Hub returned ${response.status} for draft-recovery/${country}.`);
+  }
+
+  const records = extractRecords(payload);
+  return {
+    records,
+    hasMore: Boolean(payload.hasMore || payload.has_more) && records.length > 0,
+  };
 }
 
 async function fetchAbandonedCartLeads(country, limit, source = "enriched", fetchAllPages = false) {

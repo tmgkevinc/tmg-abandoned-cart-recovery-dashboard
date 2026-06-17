@@ -317,13 +317,8 @@ async function loadLeads() {
 
 async function loadDrafts() {
   try {
-    const results = await Promise.allSettled(markets.map(async (market) => {
-      const response = await fetch(`/api/drafts?market=${market}&limit=3000`, { cache: "no-store" });
-      const data = await parseJsonResponse(response, `Draft API ${market}`);
-      if (!response.ok) throw new Error(data.error || `Could not load ${market} drafts.`);
-      return data;
-    }));
-    const payloads = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
+    const results = await Promise.allSettled(markets.map(loadDraftMarketPages));
+    const payloads = results.filter((result) => result.status === "fulfilled").flatMap((result) => result.value);
     const failures = results.filter((result) => result.status === "rejected").map((result) => result.reason?.message || "Unknown draft API error");
     if (!payloads.length) throw new Error(failures.join(" | ") || "Could not load drafts.");
     state.salesUsers = [...new Set(payloads.flatMap((data) => data.salesUsers || state.salesUsers))];
@@ -341,6 +336,25 @@ async function loadDrafts() {
     applyFilters();
     els.draftSubtitle.textContent = error.message;
   }
+}
+
+async function loadDraftMarketPages(market) {
+  const pageSize = 500;
+  const maxPages = 6;
+  const payloads = [];
+  let offset = 0;
+  let hasMore = true;
+  let pageCount = 0;
+  while (hasMore && pageCount < maxPages) {
+    const response = await fetch(`/api/drafts?market=${market}&limit=${pageSize}&offset=${offset}`, { cache: "no-store" });
+    const data = await parseJsonResponse(response, `Draft API ${market} offset ${offset}`);
+    if (!response.ok) throw new Error(data.error || `Could not load ${market} drafts at offset ${offset}.`);
+    payloads.push(data);
+    hasMore = Boolean(data.hasMore);
+    offset = Number(data.nextOffset || offset + pageSize);
+    pageCount += 1;
+  }
+  return payloads;
 }
 
 function mergeDraftSummaries(payloads) {
