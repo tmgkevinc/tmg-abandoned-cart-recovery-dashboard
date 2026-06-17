@@ -441,7 +441,7 @@ function renderDraftSummary(summary) {
   const latest = summary.latestCreatedAt || {};
   els.draftSummary.innerHTML = markets
     .map((market) => {
-      const item = byMarket[market] || { total: 0, valid: 0, assigned: 0, amount: 0, validAmount: 0, manualShipping: 0 };
+      const item = byMarket[market] || { total: 0, valid: 0, assigned: 0, discountCalculated: 0, amount: 0, validAmount: 0, manualShipping: 0 };
       const invalid = Math.max(0, Number(item.total || 0) - Number(item.valid || 0));
       return `
         <article class="metric market-${market.toLowerCase()}">
@@ -449,7 +449,7 @@ function renderDraftSummary(summary) {
           <strong>${Number(item.valid || 0).toLocaleString()} valid shipping drafts</strong>
           <small>${formatMoney(item.validAmount || 0, marketCurrency(market))} valid shipping draft value</small>
           <small>${invalid.toLocaleString()} invalid filtered out / ${Number(item.total || 0).toLocaleString()} high-shipping candidates</small>
-          <small>${Number(item.assigned || 0).toLocaleString()} valid with sales tag</small>
+          <small>${Number(item.discountCalculated || 0).toLocaleString()} discount calculated</small>
           <small>Latest: ${latest[market] ? formatDateTime(latest[market]) : "-"}</small>
         </article>
       `;
@@ -801,6 +801,7 @@ function renderTableHeads() {
     "Market",
     "Draft",
     "Sales",
+    "Discount Calculated",
     "Leads notes",
     "Created At Date",
     "Shopify Draft Status",
@@ -846,7 +847,7 @@ function renderSalesRows() {
 
 function renderDraftRows() {
   if (!state.visibleDrafts.length) {
-    els.draftTableBody.innerHTML = `<tr class="empty-row"><td colspan="59">No draft recovery leads match the current filters.</td></tr>`;
+    els.draftTableBody.innerHTML = `<tr class="empty-row"><td colspan="60">No draft recovery leads match the current filters.</td></tr>`;
     els.draftSubtitle.textContent = "No draft recovery rows match the current filters.";
     return;
   }
@@ -969,6 +970,12 @@ function renderDraftRow(draft) {
         </div>
       </td>
       ${cell(draft.tagSales || "")}
+      <td>
+        <select data-field="discountCalculated">
+          <option value="">No</option>
+          <option value="Discount Calculated" ${isDiscountCalculated(draft) ? "selected" : ""}>Yes</option>
+        </select>
+      </td>
       <td>
         <div class="notes-cell">
           <textarea data-field="notes" placeholder="Leads notes">${escapeHtml(getLeadNotes(draft))}</textarea>
@@ -1117,6 +1124,7 @@ async function saveRowFromControl(control) {
     sales: getRowField(row, "sales"),
     leadStatus: getRowField(row, "leadStatus"),
     salesStatus: getRowField(row, "leadStatus"),
+    manualStatus: getRowField(row, "discountCalculated"),
     notes,
     sales_notes: notes,
     updatedBy: state.authEmail || state.user || "",
@@ -1150,6 +1158,7 @@ function applyAssignmentResponseToLead(lead, assignment = {}) {
     leadStatus: assignment.leadStatus || assignment.salesStatus || "Valid",
     salesStatus: assignment.leadStatus || assignment.salesStatus || "Valid",
     salesNotes: assignment.notes || "",
+    manualStatus: assignment.manualStatus || "",
     assignedAt: assignment.assignedAt || "",
     lastWorklogAt: assignment.updatedAt || "",
   });
@@ -1341,6 +1350,7 @@ function getDraftExportHeaders() {
     "Market",
     "Draft",
     "Sales",
+    "Discount Calculated",
     "Leads notes",
     "Created At Date",
     "Shopify Draft Status",
@@ -1410,6 +1420,7 @@ function getDraftExportValues(draft) {
     draft.market,
     draft.checkout,
     draft.tagSales || "",
+    isDiscountCalculated(draft) ? "Yes" : "No",
     getLeadNotes(draft),
     formatCreatedAtWithAge(draft),
     draft.draftStatus,
@@ -1500,6 +1511,10 @@ function getLeadNotes(lead) {
   if (leadStatus === "Invalid") return getInvalidReasonNote(lead);
   if (leadStatus === "Recovered Auto" || leadStatus === "Recovered by Sales") return getRecoveredReasonNote(lead);
   return "";
+}
+
+function isDiscountCalculated(lead) {
+  return String(lead.manualStatus || lead.manual_status || "").trim().toLowerCase() === "discount calculated";
 }
 
 function getInvalidReasonNote(lead) {

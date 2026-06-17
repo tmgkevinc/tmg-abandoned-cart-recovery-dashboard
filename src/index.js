@@ -1334,10 +1334,10 @@ function buildDraftSummary(drafts) {
   const byMarket = {};
   const latestCreatedAt = {};
   for (const market of Object.keys(COUNTRY_META)) {
-    byMarket[market] = { total: 0, valid: 0, assigned: 0, amount: 0, validAmount: 0, manualShipping: 0 };
+    byMarket[market] = { total: 0, valid: 0, assigned: 0, discountCalculated: 0, amount: 0, validAmount: 0, manualShipping: 0 };
   }
   for (const draft of drafts) {
-    byMarket[draft.market] ||= { total: 0, valid: 0, assigned: 0, amount: 0, validAmount: 0, manualShipping: 0 };
+    byMarket[draft.market] ||= { total: 0, valid: 0, assigned: 0, discountCalculated: 0, amount: 0, validAmount: 0, manualShipping: 0 };
     byMarket[draft.market].total += 1;
     byMarket[draft.market].amount += draft.total || draft.subtotal || 0;
     if (draft.hasManualShipping) byMarket[draft.market].manualShipping += 1;
@@ -1346,11 +1346,16 @@ function buildDraftSummary(drafts) {
       byMarket[draft.market].validAmount += draft.total || draft.subtotal || 0;
     }
     if (draft.tagSales && draft.leadStatus === "Valid") byMarket[draft.market].assigned += 1;
+    if (isDiscountCalculated(draft) && draft.leadStatus === "Valid") byMarket[draft.market].discountCalculated += 1;
     if (!latestCreatedAt[draft.market] || new Date(draft.createdAt) > new Date(latestCreatedAt[draft.market])) {
       latestCreatedAt[draft.market] = draft.createdAt;
     }
   }
   return { byMarket, latestCreatedAt };
+}
+
+function isDiscountCalculated(lead) {
+  return text(lead.manualStatus || lead.manual_status).toLowerCase() === "discount calculated";
 }
 
 function buildDraftFunnelSummary(currentYearDrafts, visibleDrafts) {
@@ -1466,6 +1471,7 @@ async function syncAssignmentToDataHub(assignment, requestBody) {
     lead_status: assignment.leadStatus,
     sales_notes: assignment.notes,
     notes: assignment.notes,
+    manual_status: assignment.manualStatus || "",
     assigned_at: assignment.assignedAt || null,
     updated_at: assignment.updatedAt,
     updated_by: text(requestBody.updatedBy || requestBody.updated_by || requestBody.userEmail || ""),
