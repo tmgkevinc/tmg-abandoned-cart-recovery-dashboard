@@ -945,6 +945,41 @@ td:nth-child(60) {
   border-right: 3px solid #3f4f63;
 }
 
+.selectable-lead-table th:nth-child(24),
+.selectable-lead-table td:nth-child(24),
+.selectable-lead-table th:nth-child(30),
+.selectable-lead-table td:nth-child(30),
+.selectable-lead-table th:nth-child(36),
+.selectable-lead-table td:nth-child(36),
+.selectable-lead-table th:nth-child(42),
+.selectable-lead-table td:nth-child(42),
+.selectable-lead-table th:nth-child(48),
+.selectable-lead-table td:nth-child(48),
+.selectable-lead-table th:nth-child(54),
+.selectable-lead-table td:nth-child(54),
+.selectable-lead-table th:nth-child(60),
+.selectable-lead-table td:nth-child(60) {
+  border-right: 1px solid var(--border);
+}
+
+.selectable-lead-table th:nth-child(25),
+.selectable-lead-table td:nth-child(25),
+.selectable-lead-table th:nth-child(31),
+.selectable-lead-table td:nth-child(31),
+.selectable-lead-table th:nth-child(37),
+.selectable-lead-table td:nth-child(37),
+.selectable-lead-table th:nth-child(43),
+.selectable-lead-table td:nth-child(43),
+.selectable-lead-table th:nth-child(49),
+.selectable-lead-table td:nth-child(49),
+.selectable-lead-table th:nth-child(55),
+.selectable-lead-table td:nth-child(55),
+.selectable-lead-table th:nth-child(61),
+.selectable-lead-table td:nth-child(61) {
+  border-left: 1px solid var(--border);
+  border-right: 3px solid #3f4f63;
+}
+
 .grade {
   display: inline-flex;
   min-width: 36px;
