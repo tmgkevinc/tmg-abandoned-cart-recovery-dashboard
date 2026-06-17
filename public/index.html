@@ -61,45 +61,6 @@
           <div id="salesOverview" class="sales-overview"></div>
         </section>
 
-        <section class="controls" aria-label="Filters">
-          <label>
-            <span>Market</span>
-            <select id="marketFilter">
-              <option value="ALL">All stores</option>
-              <option value="US">US</option>
-              <option value="CA">CA</option>
-              <option value="AU">AU</option>
-            </select>
-          </label>
-          <label>
-            <span>Lead status</span>
-            <select id="leadStatusFilter">
-              <option value="ALL">All</option>
-              <option value="Valid" selected>Valid</option>
-              <option value="Invalid">Invalid</option>
-              <option value="Recovered Auto">Recovered Auto</option>
-              <option value="Recovered by Sales">Recovered by Sales</option>
-            </select>
-          </label>
-          <label>
-            <span>Grade</span>
-            <select id="gradeFilter">
-              <option value="ALL">All grades</option>
-            </select>
-          </label>
-          <label>
-            <span>Assigned sales</span>
-            <select id="salesFilter">
-              <option value="ALL">All sales</option>
-            </select>
-          </label>
-          <label class="search-field">
-            <span>Search</span>
-            <input id="searchInput" type="search" placeholder="Checkout, name, email, phone, SKU" />
-          </label>
-          <button id="refreshButton" type="button">Refresh Data Hub</button>
-        </section>
-
         <section class="panel qualified-panel">
           <div class="panel-header">
             <div>
@@ -107,6 +68,44 @@
               <p id="qualifiedSubtitle">Load Data Hub leads to begin.</p>
             </div>
           </div>
+          <section class="controls lead-panel-controls" aria-label="Abandoned cart lead filters">
+            <label>
+              <span>Market</span>
+              <select id="marketFilter">
+                <option value="ALL">All stores</option>
+                <option value="US">US</option>
+                <option value="CA">CA</option>
+                <option value="AU">AU</option>
+              </select>
+            </label>
+            <label>
+              <span>Lead status</span>
+              <select id="leadStatusFilter">
+                <option value="ALL">All</option>
+                <option value="Valid" selected>Valid</option>
+                <option value="Invalid">Invalid</option>
+                <option value="Recovered Auto">Recovered Auto</option>
+                <option value="Recovered by Sales">Recovered by Sales</option>
+              </select>
+            </label>
+            <label>
+              <span>Grade</span>
+              <select id="gradeFilter">
+                <option value="ALL">All grades</option>
+              </select>
+            </label>
+            <label>
+              <span>Assigned sales</span>
+              <select id="salesFilter">
+                <option value="ALL">All sales</option>
+              </select>
+            </label>
+            <label class="search-field">
+              <span>Search</span>
+              <input id="searchInput" type="search" placeholder="Checkout, name, email, phone, SKU" />
+            </label>
+            <button id="refreshButton" type="button">Refresh Data Hub</button>
+          </section>
           <div class="lead-table-toolbar">
             <div id="bulkAssignBar" class="bulk-assign-bar" hidden>
               <strong id="bulkSelectedCount">0 selected</strong>
