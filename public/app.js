@@ -803,9 +803,8 @@ function renderTableHeads() {
     "Shopify Draft Status",
     "Subtotal",
     "Estimated Cost",
+    "Margin",
     "Shipping",
-    "Margin without shipping",
-    "Margin with shipping",
     "Customer",
     "Phone",
     "Email",
@@ -843,7 +842,7 @@ function renderSalesRows() {
 
 function renderDraftRows() {
   if (!state.visibleDrafts.length) {
-    els.draftTableBody.innerHTML = `<tr class="empty-row"><td colspan="59">No draft recovery leads match the current filters.</td></tr>`;
+    els.draftTableBody.innerHTML = `<tr class="empty-row"><td colspan="58">No high-shipping drafts match the current filters.</td></tr>`;
     return;
   }
   els.draftTableBody.innerHTML = state.visibleDrafts.map(renderDraftRow).join("");
@@ -981,9 +980,8 @@ function renderDraftRow(draft) {
       ${cell(draft.draftStatus)}
       ${cell(formatMoney(draft.subtotal, draft.currency))}
       ${cell(formatOptionalMoney(draft.totalCost, draft.currency))}
-      ${cell(formatMoney(draft.manualShippingPrice || 0, draft.currency))}
       ${cell(formatMarginWithPercent(draft.marginWithoutShipping ?? draft.margin, draft.marginWithoutShippingPercent ?? draft.marginPercent, draft.currency))}
-      ${cell(formatMarginWithPercent(draft.marginWithShipping, draft.marginWithShippingPercent, draft.currency))}
+      ${cell(formatMoney(draft.manualShippingPrice || 0, draft.currency))}
       ${cell(draft.name)}
       ${cell(draft.checkoutPhone)}
       ${cell(draft.checkoutEmail)}
@@ -1344,9 +1342,8 @@ function getDraftExportHeaders() {
     "Shopify Draft Status",
     "Subtotal",
     "Estimated Cost",
+    "Margin",
     "Shipping",
-    "Margin without shipping",
-    "Margin with shipping",
     "Customer",
     "Phone",
     "Email",
@@ -1413,9 +1410,8 @@ function getDraftExportValues(draft) {
     draft.draftStatus,
     draft.subtotal,
     draft.totalCost ?? "",
-    draft.manualShippingPrice || 0,
     formatMarginWithPercent(draft.marginWithoutShipping ?? draft.margin, draft.marginWithoutShippingPercent ?? draft.marginPercent, draft.currency),
-    formatMarginWithPercent(draft.marginWithShipping, draft.marginWithShippingPercent, draft.currency),
+    draft.manualShippingPrice || 0,
     draft.name,
     draft.checkoutPhone,
     draft.checkoutEmail,
