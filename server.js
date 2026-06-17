@@ -208,6 +208,7 @@ async function handleDrafts(url, res) {
   const drafts = normalizedDrafts
     .filter((draft) => !draft.completed && draft.hasManualShipping)
     .filter(hasHighManualShippingCost)
+    .filter(isNonDealerSalesDraft)
     .map((draft) => applyAssignment(draft, assignments))
     .map(applyDraftOpportunityStatus)
     .sort(sortBySubtotalDesc);
@@ -673,6 +674,7 @@ function normalizeDraft(record, market, productLookup) {
   const currency = text(raw.currency || raw.currency_code || record.currency_code || COUNTRY_META[market]?.currency || "USD");
   const tags = normalizeTags(raw.tags || record.tags);
   const tagSales = matchSalesName(tags.join(" "));
+  const isDealerSale = isDealerSalesDraft(raw, record, tags);
   const ageHours = createdAt ? Math.max(0, (Date.now() - new Date(createdAt).getTime()) / 36e5) : null;
   const marginSummary = calculateMarginSummary(lineItems, subtotal, manualShippingPrice, false);
 
@@ -715,6 +717,7 @@ function normalizeDraft(record, market, productLookup) {
     source: text(raw.source_name || raw.sourceName || record.source_name || "draft_order"),
     tags,
     tagSales,
+    isDealerSale,
     recovered: false,
     recoveredOrderNumber: "",
     recoveredBySales: false,
@@ -1180,6 +1183,63 @@ function hasHighManualShippingCost(draft) {
   return Number(draft.manualShippingPrice || 0) > 100;
 }
 
+function isNonDealerSalesDraft(draft) {
+  return !draft.isDealerSale;
+}
+
+function isDealerSalesDraft(raw, record, tags = []) {
+  const explicitValues = [
+    raw.is_dealer_sale,
+    raw.isDealerSale,
+    raw.dealer_sale,
+    raw.dealerSale,
+    raw.dealer_sales,
+    raw.dealerSales,
+    raw.is_dealer,
+    raw.isDealer,
+    record.is_dealer_sale,
+    record.isDealerSale,
+    record.dealer_sale,
+    record.dealerSale,
+    record.dealer_sales,
+    record.dealerSales,
+    record.is_dealer,
+    record.isDealer,
+  ];
+  if (explicitValues.some((value) => booleanValue(value))) return true;
+
+  const typeFields = [
+    raw.sales_type,
+    raw.salesType,
+    raw.sale_type,
+    raw.saleType,
+    raw.customer_type,
+    raw.customerType,
+    raw.order_type,
+    raw.orderType,
+    raw.channel_type,
+    raw.channelType,
+    raw.sales_channel,
+    raw.salesChannel,
+    record.sales_type,
+    record.salesType,
+    record.sale_type,
+    record.saleType,
+    record.customer_type,
+    record.customerType,
+    record.order_type,
+    record.orderType,
+    record.channel_type,
+    record.channelType,
+    record.sales_channel,
+    record.salesChannel,
+  ];
+  const haystack = [...tags, ...typeFields].map(normalizeComparable).filter(Boolean).join(" ");
+  if (!haystack) return false;
+  if (/\bnon dealer\b/.test(haystack) || /\bnondealer\b/.test(haystack)) return false;
+  return /\bdealer\b/.test(haystack) || /\bdealer sales\b/.test(haystack);
+}
+
 function booleanValue(value) {
   if (value === true) return true;
   if (value === false || value === null || value === undefined || value === "") return false;
@@ -1285,6 +1345,7 @@ function buildDraftFunnelSummary(currentYearDrafts, visibleDrafts) {
     completed: 0,
     noManualShipping: 0,
     lowShipping: 0,
+    dealerSales: 0,
     noInventory: 0,
     manualMarked: 0,
     ready: 0,
@@ -1299,7 +1360,11 @@ function buildDraftFunnelSummary(currentYearDrafts, visibleDrafts) {
       counts.noManualShipping += 1;
       continue;
     }
-    if (!hasHighManualShippingCost(draft)) counts.lowShipping += 1;
+    if (!hasHighManualShippingCost(draft)) {
+      counts.lowShipping += 1;
+      continue;
+    }
+    if (!isNonDealerSalesDraft(draft)) counts.dealerSales += 1;
   }
 
   for (const draft of visibleDrafts) {

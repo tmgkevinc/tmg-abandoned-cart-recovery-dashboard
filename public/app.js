@@ -486,6 +486,12 @@ function renderRulesFunnel() {
       outcome: "Only high-shipping draft opportunities continue to inventory review.",
     },
     {
+      label: "Non-dealer sales gate",
+      count: counts.dealerSales,
+      rule: "Only non-dealer sales drafts continue. Drafts flagged as dealer sales by Data Hub fields or draft tags are removed.",
+      outcome: "Dealer sales drafts are excluded from this recovery workflow.",
+    },
+    {
       label: "Inventory gate",
       count: counts.noInventory,
       rule: "Draft needs at least one visible product line with usable inventory. PP / PSP / surcharge-only rows are not treated as recoverable products.",
@@ -587,7 +593,7 @@ function renderRuleGroup(title, rows) {
 
 function formatFunnelStepCount(step) {
   const count = Number(step.count || 0);
-  const label = `${Math.abs(count).toLocaleString()} leads`;
+  const label = `${Math.abs(count).toLocaleString()} drafts`;
   return step.countType === "total" ? label : `-${label}`;
 }
 
@@ -629,6 +635,7 @@ function getDraftFunnelCounts(drafts) {
     completed: 0,
     noManualShipping: 0,
     lowShipping: 0,
+    dealerSales: 0,
     noInventory: 0,
     manualMarked: 0,
     ready: 0,
@@ -638,6 +645,7 @@ function getDraftFunnelCounts(drafts) {
     if (draft.completed) counts.completed += 1;
     if (!draft.hasManualShipping) counts.noManualShipping += 1;
     if (Number(draft.manualShippingPrice || 0) <= 100) counts.lowShipping += 1;
+    if (draft.isDealerSale) counts.dealerSales += 1;
     if (draft.funnelStatus === "Needs Review") counts.noInventory += 1;
     if (draft.leadStatus !== "Valid" && draft.funnelStatus !== "Needs Review") counts.manualMarked += 1;
     if (draft.leadStatus === "Valid") counts.ready += 1;
