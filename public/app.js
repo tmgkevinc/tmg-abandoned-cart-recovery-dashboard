@@ -442,11 +442,13 @@ function renderDraftSummary(summary) {
   els.draftSummary.innerHTML = markets
     .map((market) => {
       const item = byMarket[market] || { total: 0, valid: 0, assigned: 0, amount: 0, validAmount: 0, manualShipping: 0 };
+      const invalid = Math.max(0, Number(item.total || 0) - Number(item.valid || 0));
       return `
         <article class="metric market-${market.toLowerCase()}">
           <span>${market}</span>
-          <strong>${Number(item.valid || 0).toLocaleString()} recovery-ready / ${Number(item.total || 0).toLocaleString()} manual-shipping drafts</strong>
-          <small>${formatMoney(item.validAmount || 0, marketCurrency(market))} recovery-ready / ${formatMoney(item.amount || 0, marketCurrency(market))} total</small>
+          <strong>${Number(item.valid || 0).toLocaleString()} valid shipping drafts</strong>
+          <small>${formatMoney(item.validAmount || 0, marketCurrency(market))} valid shipping draft value</small>
+          <small>${invalid.toLocaleString()} invalid filtered out / ${Number(item.total || 0).toLocaleString()} high-shipping candidates</small>
           <small>${Number(item.assigned || 0).toLocaleString()} valid with sales tag</small>
           <small>Latest: ${latest[market] ? formatDateTime(latest[market]) : "-"}</small>
         </article>
@@ -845,9 +847,12 @@ function renderSalesRows() {
 function renderDraftRows() {
   if (!state.visibleDrafts.length) {
     els.draftTableBody.innerHTML = `<tr class="empty-row"><td colspan="59">No draft recovery leads match the current filters.</td></tr>`;
+    els.draftSubtitle.textContent = "No draft recovery rows match the current filters.";
     return;
   }
   els.draftTableBody.innerHTML = state.visibleDrafts.map(renderDraftRow).join("");
+  const status = els.draftLeadStatusFilter.value === "ALL" ? "all statuses" : els.draftLeadStatusFilter.value;
+  els.draftSubtitle.textContent = `${state.visibleDrafts.length.toLocaleString()} ${status.toLowerCase()} high-shipping draft rows match the current filters.`;
 }
 
 function renderLeadRow(lead, options = {}) {
