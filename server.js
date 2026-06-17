@@ -189,19 +189,25 @@ async function handleDrafts(url, res) {
     .filter((market) => COUNTRY_META[market]);
   const limit = Math.max(25, Math.min(Number(url.searchParams.get("limit") || 10000), 50000));
   const startedAt = new Date();
+  const currentYear = startedAt.getFullYear();
+  const perMarketLimit = Math.max(25, Math.ceil(limit / Math.max(markets.length, 1)));
 
   const draftResults = await Promise.all(markets.map(async (market) => ({
     market,
-    records: await fetchDraftOrders(market, limit),
+    records: await fetchDraftOrders(market, perMarketLimit),
   })));
-  const productLookup = await buildProductLookupFromCheckouts(draftResults);
+  const productLookup = {};
   const assignments = await readAssignments(markets, 10000);
 
-  const drafts = draftResults
+  const normalizedDrafts = draftResults
     .flatMap((result) => result.records.map((record) => ({ record, market: result.market })))
     .map(({ record, market }) => normalizeDraft(record, market, productLookup))
     .filter((draft) => markets.includes(draft.market))
+    .filter((draft) => isCurrentYearDraft(draft, currentYear));
+
+  const drafts = normalizedDrafts
     .filter((draft) => !draft.completed && draft.hasManualShipping)
+    .filter(hasHighManualShippingCost)
     .map((draft) => applyAssignment(draft, assignments))
     .map(applyDraftOpportunityStatus)
     .sort(sortBySubtotalDesc);
@@ -211,8 +217,12 @@ async function handleDrafts(url, res) {
     fetchedAt: startedAt.toISOString(),
     count: drafts.length,
     markets,
+    year: currentYear,
+    limit,
+    perMarketLimit,
     source: "draft-recovery",
     summary: buildDraftSummary(drafts),
+    funnel: buildDraftFunnelSummary(normalizedDrafts, drafts),
     salesUsers,
     drafts,
   });
@@ -668,6 +678,7 @@ function normalizeDraft(record, market, productLookup) {
   const state = normalizeState(shipping.province_code || shipping.province || shipping.state || billing.province_code || billing.province || "");
   const currency = text(raw.currency || raw.currency_code || record.currency_code || COUNTRY_META[market]?.currency || "USD");
   const tags = normalizeTags(raw.tags || record.tags);
+  const tagSales = matchSalesName(tags.join(" "));
   const ageHours = createdAt ? Math.max(0, (Date.now() - new Date(createdAt).getTime()) / 36e5) : null;
   const marginSummary = calculateMarginSummary(lineItems, subtotal, manualShippingPrice, Boolean(manualShippingItem));
 
@@ -709,6 +720,7 @@ function normalizeDraft(record, market, productLookup) {
     ageHours,
     source: text(raw.source_name || raw.sourceName || record.source_name || "draft_order"),
     tags,
+    tagSales,
     recovered: false,
     recoveredOrderNumber: "",
     recoveredBySales: false,
@@ -1177,10 +1189,20 @@ function matchSalesName(value) {
   return SALES_USERS.find((name) => name !== "Non-sales" && haystack.includes(normalizeComparable(name))) || "";
 }
 
+function hasHighManualShippingCost(draft) {
+  return Number(draft.manualShippingPrice || 0) > 100;
+}
+
 function booleanValue(value) {
   if (value === true) return true;
   if (value === false || value === null || value === undefined || value === "") return false;
   return ["true", "1", "yes", "y"].includes(text(value).toLowerCase());
+}
+
+function isCurrentYearDraft(draft, year) {
+  const timestamp = Date.parse(draft.createdAt || "");
+  if (!Number.isFinite(timestamp)) return false;
+  return new Date(timestamp).getFullYear() === year;
 }
 
 function buildSummary(leads) {
@@ -1262,12 +1284,44 @@ function buildDraftSummary(drafts) {
       byMarket[draft.market].valid += 1;
       byMarket[draft.market].validAmount += draft.total || draft.subtotal || 0;
     }
-    if (draft.assignedSales && draft.leadStatus === "Valid") byMarket[draft.market].assigned += 1;
+    if (draft.tagSales && draft.leadStatus === "Valid") byMarket[draft.market].assigned += 1;
     if (!latestCreatedAt[draft.market] || new Date(draft.createdAt) > new Date(latestCreatedAt[draft.market])) {
       latestCreatedAt[draft.market] = draft.createdAt;
     }
   }
   return { byMarket, latestCreatedAt };
+}
+
+function buildDraftFunnelSummary(currentYearDrafts, visibleDrafts) {
+  const counts = {
+    all: currentYearDrafts.length,
+    completed: 0,
+    noManualShipping: 0,
+    lowShipping: 0,
+    noInventory: 0,
+    manualMarked: 0,
+    ready: 0,
+  };
+
+  for (const draft of currentYearDrafts) {
+    if (draft.completed) {
+      counts.completed += 1;
+      continue;
+    }
+    if (!draft.hasManualShipping) {
+      counts.noManualShipping += 1;
+      continue;
+    }
+    if (!hasHighManualShippingCost(draft)) counts.lowShipping += 1;
+  }
+
+  for (const draft of visibleDrafts) {
+    if (draft.funnelStatus === "Needs Review") counts.noInventory += 1;
+    if (draft.leadStatus !== "Valid" && draft.funnelStatus !== "Needs Review") counts.manualMarked += 1;
+    if (draft.leadStatus === "Valid") counts.ready += 1;
+  }
+
+  return counts;
 }
 
 function incrementAgeBucket(buckets, ageHours) {
