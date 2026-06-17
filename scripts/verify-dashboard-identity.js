@@ -29,48 +29,46 @@ if (!files.packageJson.includes('"name": "tmg-high-shipping-no-completed-dashboa
   fail("package.json must use the high shipping draft dashboard package name.");
 }
 
-if (files.wrangler.includes('"name": "tmg-abandoned-cart-recovery-dashboard"')) {
-  fail("wrangler.jsonc must not deploy to the abandoned cart dashboard worker.");
-}
-
 if (!files.indexHtml.includes("TMG High Shipping Not Completed Draft")) {
-  fail("public/index.html must render the high shipping draft dashboard.");
+  fail("public/index.html must render the high shipping draft workspace.");
 }
 
-if (!files.indexHtml.includes('data-tab="drafts"')) {
-  fail("public/index.html must include the draft workspace tab.");
+if (!files.indexHtml.includes("High Shipping Not Completed Drafts")) {
+  fail("public/index.html must include the high shipping drafts table.");
 }
 
-if (!files.appJs.includes("limit=3000")) {
-  fail("public/app.js must keep draft API requests within Worker limits.");
+if (!files.appJs.includes("/api/drafts?market=US,CA,AU&limit=3000")) {
+  fail("public/app.js must call the high shipping drafts API.");
 }
 
-if (files.appJs.includes("limit=50000")) {
-  fail("public/app.js must not request 50000 draft rows from the Worker.");
+if (!files.serverJs.includes("/api/data-hub/reports/draft-recovery") || !files.workerJs.includes("/api/data-hub/reports/draft-recovery")) {
+  fail("server and worker must read the Data Hub draft-recovery report.");
 }
 
-if (!files.appJs.includes("Shipping cost gate")) {
-  fail("public/app.js must show the shipping cost gate in Rules & Funnel.");
+const forbiddenMarkers = [
+  "TMG Abandoned Cart Leads Recovery",
+  "Abandoned Cart Leads",
+  "tmg-abandoned-cart-recovery-dashboard",
+];
+
+for (const [name, content] of Object.entries(files)) {
+  for (const marker of forbiddenMarkers) {
+    if (content.includes(marker)) {
+      fail(`${name} contains forbidden dashboard marker: ${marker}`);
+    }
+  }
 }
 
-if (!files.appJs.includes("draft.tagSales")) {
-  fail("public/app.js must display draft sales from Shopify draft tags, not assignment controls.");
+if (!files.serverJs.includes("high-shipping-drafts") || !files.workerJs.includes("high-shipping-drafts")) {
+  fail("server and worker must identify the high shipping drafts source.");
 }
 
-if (!files.serverJs.includes("tagSales") || !files.workerJs.includes("tagSales")) {
-  fail("server and worker must expose the sales owner parsed from draft tags.");
+if (/async function loadAllData\(\)\s*{\s*await loadLeads\(\);/m.test(files.appJs)) {
+  fail("public/app.js must not load abandoned cart leads for this draft dashboard.");
 }
 
-if (!files.serverJs.includes("draft-recovery") || !files.workerJs.includes("draft-recovery")) {
-  fail("server and worker must read draft-recovery.");
-}
-
-if (!files.serverJs.includes("isCurrentYearDraft") || !files.workerJs.includes("isCurrentYearDraft")) {
-  fail("server and worker must apply current-year draft filtering.");
-}
-
-if (!files.serverJs.includes("hasHighManualShippingCost") || !files.workerJs.includes("hasHighManualShippingCost")) {
-  fail("server and worker must filter out drafts with manual shipping cost of 100 or lower.");
+if (!files.appJs.includes("formatMarginWithPercent")) {
+  fail("public/app.js must render margin values with margin percentages.");
 }
 
 if (process.exitCode) {

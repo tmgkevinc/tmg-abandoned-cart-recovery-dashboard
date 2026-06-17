@@ -32,7 +32,7 @@
     <main class="app-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Draft Checks and Assignment</p>
+          <p class="eyebrow">Draft Checks and Recovery</p>
           <h1>TMG High Shipping Not Completed Draft</h1>
           <p id="dataFreshness" class="subtle">Data Hub status has not loaded yet.</p>
         </div>
@@ -48,7 +48,7 @@
         <button class="tab-button" type="button" data-tab="rules">Rules & Funnel</button>
       </nav>
 
-      <section id="workspaceTab" class="tab-panel" hidden>
+      <section id="workspaceTab" class="tab-panel">
         <section id="marketSummary" class="metric-grid" aria-label="Market summary"></section>
 
         <section id="salesPersonalSummary" class="sales-personal-summary" aria-label="Sales personal summary"></section>
@@ -64,11 +64,11 @@
         <section class="panel qualified-panel">
           <div class="panel-header">
             <div>
-              <h2>Abandoned Cart Leads</h2>
-              <p id="qualifiedSubtitle">Load Data Hub leads to begin.</p>
+              <h2>Draft Candidates</h2>
+              <p id="qualifiedSubtitle">Load Data Hub drafts to begin.</p>
             </div>
           </div>
-          <section class="controls lead-panel-controls" aria-label="Abandoned cart lead filters">
+          <section class="controls lead-panel-controls" aria-label="Draft candidate filters">
             <label>
               <span>Market</span>
               <select id="marketFilter">
@@ -202,15 +202,15 @@
           <label>
             <span>Lead status</span>
             <select id="draftLeadStatusFilter">
-              <option value="ALL">All</option>
-              <option value="Valid" selected>Valid</option>
+              <option value="ALL" selected>All</option>
+              <option value="Valid">Valid</option>
               <option value="Invalid">Invalid</option>
               <option value="Recovered Auto">Recovered Auto</option>
               <option value="Recovered by Sales">Recovered by Sales</option>
             </select>
           </label>
           <label>
-            <span>Sales</span>
+            <span>Assigned sales</span>
             <select id="draftSalesFilter">
               <option value="ALL">All sales</option>
             </select>
@@ -243,7 +243,7 @@
           <div class="panel-header">
             <div>
               <h2>Rules & Funnel</h2>
-              <p>Current draft selection logic used by this dashboard.</p>
+              <p>Current lead selection logic used by this dashboard.</p>
             </div>
           </div>
           <div id="rulesFunnel" class="rules-funnel"></div>
@@ -251,7 +251,7 @@
       </section>
     </main>
 
-    <script src="/app.js?v=20260617-0058"></script>
+    <script src="/app.js?v=20260617-0118"></script>
   </body>
 </html>
 

@@ -40,15 +40,6 @@ const SALES_USERS = [
   "Non-sales",
 ];
 
-const TAG_SALES_USERS = [
-  ...SALES_USERS.filter((name) => name !== "Non-sales"),
-  "Jake",
-  "Mobarak",
-  "Rachel F",
-  "Ryan",
-  "TJ Kainth",
-];
-
 const COUNTRY_META = {
   US: { currency: "USD", theme: "blue", siteBaseUrl: "https://www.tmgindustrial.com" },
   CA: { currency: "CAD", theme: "yellow", siteBaseUrl: "https://www.tmgindustrial.ca" },
@@ -171,7 +162,7 @@ async function handleLeads(url, res) {
     .sort(sortByGradeThenDate);
   const summary = buildSummary(withFunnel);
   summary.bySales = buildSalesAssignmentSummary(assignments, markets);
-  const salesUsers = mergeSalesUsers(await getActiveSalesUsers(), drafts.map((draft) => draft.tagSales));
+  const salesUsers = await getActiveSalesUsers();
 
   return sendJson(res, 200, {
     fetchedAt: startedAt.toISOString(),
@@ -198,25 +189,19 @@ async function handleDrafts(url, res) {
     .filter((market) => COUNTRY_META[market]);
   const limit = Math.max(25, Math.min(Number(url.searchParams.get("limit") || 10000), 50000));
   const startedAt = new Date();
-  const currentYear = startedAt.getFullYear();
-  const perMarketLimit = Math.max(25, Math.ceil(limit / Math.max(markets.length, 1)));
 
   const draftResults = await Promise.all(markets.map(async (market) => ({
     market,
-    records: await fetchDraftOrders(market, perMarketLimit),
+    records: await fetchDraftOrders(market, limit),
   })));
-  const productLookup = {};
+  const productLookup = await buildProductLookupFromCheckouts(draftResults);
   const assignments = await readAssignments(markets, 10000);
 
-  const normalizedDrafts = draftResults
+  const drafts = draftResults
     .flatMap((result) => result.records.map((record) => ({ record, market: result.market })))
     .map(({ record, market }) => normalizeDraft(record, market, productLookup))
     .filter((draft) => markets.includes(draft.market))
-    .filter((draft) => isCurrentYearDraft(draft, currentYear));
-
-  const drafts = normalizedDrafts
     .filter((draft) => !draft.completed && draft.hasManualShipping)
-    .filter(hasHighManualShippingCost)
     .map((draft) => applyAssignment(draft, assignments))
     .map(applyDraftOpportunityStatus)
     .sort(sortBySubtotalDesc);
@@ -226,12 +211,8 @@ async function handleDrafts(url, res) {
     fetchedAt: startedAt.toISOString(),
     count: drafts.length,
     markets,
-    year: currentYear,
-    limit,
-    perMarketLimit,
-    source: "draft-recovery",
+    source: "high-shipping-drafts",
     summary: buildDraftSummary(drafts),
-    funnel: buildDraftFunnelSummary(normalizedDrafts, drafts),
     salesUsers,
     drafts,
   });
@@ -270,7 +251,7 @@ function getSalesRosterName(row) {
     rachelf: "Rachel F",
     ryan: "Ryan",
     steven: "Steven",
-    tj: "TJ Kainth",
+    tj: "T J",
   };
   if (known[key]) return known[key];
 
@@ -655,9 +636,15 @@ function normalizeDraft(record, market, productLookup) {
   const shipping = raw.shipping_address || raw.shippingAddress || {};
   const billing = raw.billing_address || raw.billingAddress || {};
   const allLineItems = getLineItems(raw);
-  const shippingLine = getDraftShippingLine(raw);
+  const manualShippingItem = allLineItems.find(isManualShippingLineItem);
+  const explicitShippingLine = getDraftShippingLine(raw);
+  const shippingLine = hasManualShippingLine(explicitShippingLine)
+    ? explicitShippingLine
+    : manualShippingItem
+      ? { title: manualShippingItem.title, price: manualShippingItem.checkoutPrice }
+      : {};
   const lineItems = allLineItems
-    .filter((item) => !isPpProduct(item))
+    .filter((item) => item !== manualShippingItem && !isPpProduct(item))
     .map((item) => enrichLineItemFromProducts(item, productLookup?.[market]));
   const completedAt = text(raw.completed_at || raw.completedAt || record.completed_at || record.completedAt);
   const status = text(raw.status || record.status);
@@ -681,10 +668,8 @@ function normalizeDraft(record, market, productLookup) {
   const state = normalizeState(shipping.province_code || shipping.province || shipping.state || billing.province_code || billing.province || "");
   const currency = text(raw.currency || raw.currency_code || record.currency_code || COUNTRY_META[market]?.currency || "USD");
   const tags = normalizeTags(raw.tags || record.tags);
-  const tagSales = matchSalesName(tags.join(" "));
-  const isDealerSale = isDealerSalesDraft(raw, record, tags);
   const ageHours = createdAt ? Math.max(0, (Date.now() - new Date(createdAt).getTime()) / 36e5) : null;
-  const marginSummary = calculateMarginSummary(lineItems, subtotal, manualShippingPrice, false);
+  const marginSummary = calculateMarginSummary(lineItems, subtotal, manualShippingPrice, Boolean(manualShippingItem));
 
   return {
     id: draftId || draftName,
@@ -705,7 +690,9 @@ function normalizeDraft(record, market, productLookup) {
     margin: marginSummary.margin,
     marginPercent: marginSummary.marginPercent,
     marginWithoutShipping: marginSummary.marginWithoutShipping,
+    marginWithoutShippingPercent: marginSummary.marginWithoutShippingPercent,
     marginWithShipping: marginSummary.marginWithShipping,
+    marginWithShippingPercent: marginSummary.marginWithShippingPercent,
     currency,
     checkoutPhone: phone,
     checkoutEmail: email,
@@ -724,8 +711,6 @@ function normalizeDraft(record, market, productLookup) {
     ageHours,
     source: text(raw.source_name || raw.sourceName || record.source_name || "draft_order"),
     tags,
-    tagSales,
-    isDealerSale,
     recovered: false,
     recoveredOrderNumber: "",
     recoveredBySales: false,
@@ -741,7 +726,17 @@ function normalizeDraft(record, market, productLookup) {
 
 function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippingIncludedInSubtotal = false) {
   const costs = lineItems.map((item) => item.totalCost).filter((value) => value !== null && value !== undefined);
-  if (!costs.length) return { totalCost: null, margin: null, marginPercent: null, marginWithoutShipping: null, marginWithShipping: null };
+  if (!costs.length) {
+    return {
+      totalCost: null,
+      margin: null,
+      marginPercent: null,
+      marginWithoutShipping: null,
+      marginWithoutShippingPercent: null,
+      marginWithShipping: null,
+      marginWithShippingPercent: null,
+    };
+  }
   const totalCost = costs.reduce((sum, value) => sum + Number(value || 0), 0);
   const subtotalRevenue = Number(subtotal || 0);
   const shipping = Number(shippingAmount || 0);
@@ -749,8 +744,17 @@ function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippin
   const revenueWithShipping = shippingIncludedInSubtotal ? subtotalRevenue : subtotalRevenue + shipping;
   const marginWithoutShipping = revenueWithoutShipping - totalCost;
   const marginWithShipping = revenueWithShipping - totalCost;
-  const marginPercent = revenueWithoutShipping ? marginWithoutShipping / revenueWithoutShipping : null;
-  return { totalCost, margin: marginWithoutShipping, marginPercent, marginWithoutShipping, marginWithShipping };
+  const marginWithoutShippingPercent = revenueWithoutShipping ? marginWithoutShipping / revenueWithoutShipping : null;
+  const marginWithShippingPercent = revenueWithShipping ? marginWithShipping / revenueWithShipping : null;
+  return {
+    totalCost,
+    margin: marginWithoutShipping,
+    marginPercent: marginWithoutShippingPercent,
+    marginWithoutShipping,
+    marginWithoutShippingPercent,
+    marginWithShipping,
+    marginWithShippingPercent,
+  };
 }
 
 function getDraftShippingLine(raw) {
@@ -771,6 +775,13 @@ function hasManualShippingLine(line) {
   return Boolean(label) || price > 0;
 }
 
+function isManualShippingLineItem(item) {
+  const sku = text(item.sku).toUpperCase();
+  const title = text(item.title).toUpperCase();
+  if (sku.startsWith("PP") || title.includes("PREMIUM SHIPPING PROTECTION") || title === "PSP") return false;
+  return title.includes("SURCHARGE") || title.includes("FREIGHT") || title.includes("DELIVERY") || title.includes("MANUAL SHIPPING");
+}
+
 function applyDraftOpportunityStatus(draft) {
   const hasProduct = draft.lineItems.length > 0;
   const hasInventory = draft.lineItems.some((item) => itemHasInventory(item));
@@ -779,7 +790,6 @@ function applyDraftOpportunityStatus(draft) {
     ? rawSavedLeadStatus
     : "";
   const blockedReasons = [];
-  if (draft.isDealerSale) blockedReasons.push("Dealer sales draft");
   if (!hasProduct || !hasInventory) blockedReasons.push("No product with known inventory");
 
   const leadStatus = savedLeadStatus || (blockedReasons.length ? "Invalid" : "Valid");
@@ -787,7 +797,7 @@ function applyDraftOpportunityStatus(draft) {
     ...draft,
     leadStatus,
     salesStatus: leadStatus,
-    funnelStatus: draft.isDealerSale ? "Dealer Sales" : blockedReasons.length ? "Needs Review" : "Ready",
+    funnelStatus: blockedReasons.length ? "Needs Review" : "Ready",
     funnelReason: blockedReasons.length ? blockedReasons.join("; ") : "Open draft with manual shipping",
   };
 }
@@ -1177,7 +1187,7 @@ function normalizeTags(value) {
     } catch (error) {
       // Fall back to comma splitting below.
     }
-    return value.split(/[|,]/).map(text).filter(Boolean);
+    return value.split(",").map(text).filter(Boolean);
   }
   return [];
 }
@@ -1185,97 +1195,13 @@ function normalizeTags(value) {
 function matchSalesName(value) {
   const haystack = normalizeComparable(value);
   if (!haystack) return "";
-  return TAG_SALES_USERS
-    .slice()
-    .sort((a, b) => normalizeComparable(b).length - normalizeComparable(a).length)
-    .find((name) => haystack.includes(normalizeComparable(name))) || "";
-}
-
-function mergeSalesUsers(baseUsers, extraUsers = []) {
-  const names = [...(baseUsers || []), ...extraUsers].map(text).filter(Boolean);
-  const deduped = [];
-  const seen = new Set();
-  for (const name of names) {
-    const key = normalizeComparable(name);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(name);
-  }
-  return deduped;
-}
-
-function hasHighManualShippingCost(draft) {
-  return Number(draft.manualShippingPrice || 0) > 100;
-}
-
-function isNonDealerSalesDraft(draft) {
-  return !draft.isDealerSale;
-}
-
-function isDealerSalesDraft(raw, record, tags = []) {
-  const explicitValues = [
-    raw.is_dealer_sale,
-    raw.isDealerSale,
-    raw.dealer_sale,
-    raw.dealerSale,
-    raw.dealer_sales,
-    raw.dealerSales,
-    raw.is_dealer,
-    raw.isDealer,
-    record.is_dealer_sale,
-    record.isDealerSale,
-    record.dealer_sale,
-    record.dealerSale,
-    record.dealer_sales,
-    record.dealerSales,
-    record.is_dealer,
-    record.isDealer,
-  ];
-  if (explicitValues.some((value) => booleanValue(value))) return true;
-
-  const typeFields = [
-    raw.sales_type,
-    raw.salesType,
-    raw.sale_type,
-    raw.saleType,
-    raw.customer_type,
-    raw.customerType,
-    raw.order_type,
-    raw.orderType,
-    raw.channel_type,
-    raw.channelType,
-    raw.sales_channel,
-    raw.salesChannel,
-    record.sales_type,
-    record.salesType,
-    record.sale_type,
-    record.saleType,
-    record.customer_type,
-    record.customerType,
-    record.order_type,
-    record.orderType,
-    record.channel_type,
-    record.channelType,
-    record.sales_channel,
-    record.salesChannel,
-  ];
-  const haystack = [...tags, ...typeFields].map(normalizeComparable).filter(Boolean).join(" ");
-  if (!haystack) return false;
-  if (haystack.includes("nondealer")) return false;
-  const tokens = haystack.split(/\s+/).filter(Boolean);
-  return tokens.includes("dealer") || haystack.includes("dealersale") || haystack.includes("dealersales");
+  return SALES_USERS.find((name) => name !== "Non-sales" && haystack.includes(normalizeComparable(name))) || "";
 }
 
 function booleanValue(value) {
   if (value === true) return true;
   if (value === false || value === null || value === undefined || value === "") return false;
   return ["true", "1", "yes", "y"].includes(text(value).toLowerCase());
-}
-
-function isCurrentYearDraft(draft, year) {
-  const timestamp = Date.parse(draft.createdAt || "");
-  if (!Number.isFinite(timestamp)) return false;
-  return new Date(timestamp).getFullYear() === year;
 }
 
 function buildSummary(leads) {
@@ -1346,10 +1272,10 @@ function buildDraftSummary(drafts) {
   const byMarket = {};
   const latestCreatedAt = {};
   for (const market of Object.keys(COUNTRY_META)) {
-    byMarket[market] = { total: 0, valid: 0, assigned: 0, discountCalculated: 0, amount: 0, validAmount: 0, manualShipping: 0 };
+    byMarket[market] = { total: 0, valid: 0, assigned: 0, amount: 0, validAmount: 0, manualShipping: 0 };
   }
   for (const draft of drafts) {
-    byMarket[draft.market] ||= { total: 0, valid: 0, assigned: 0, discountCalculated: 0, amount: 0, validAmount: 0, manualShipping: 0 };
+    byMarket[draft.market] ||= { total: 0, valid: 0, assigned: 0, amount: 0, validAmount: 0, manualShipping: 0 };
     byMarket[draft.market].total += 1;
     byMarket[draft.market].amount += draft.total || draft.subtotal || 0;
     if (draft.hasManualShipping) byMarket[draft.market].manualShipping += 1;
@@ -1357,57 +1283,12 @@ function buildDraftSummary(drafts) {
       byMarket[draft.market].valid += 1;
       byMarket[draft.market].validAmount += draft.total || draft.subtotal || 0;
     }
-    if (draft.tagSales && draft.leadStatus === "Valid") byMarket[draft.market].assigned += 1;
-    if (isDiscountCalculated(draft) && draft.leadStatus === "Valid") byMarket[draft.market].discountCalculated += 1;
+    if (draft.assignedSales && draft.leadStatus === "Valid") byMarket[draft.market].assigned += 1;
     if (!latestCreatedAt[draft.market] || new Date(draft.createdAt) > new Date(latestCreatedAt[draft.market])) {
       latestCreatedAt[draft.market] = draft.createdAt;
     }
   }
   return { byMarket, latestCreatedAt };
-}
-
-function isDiscountCalculated(lead) {
-  return text(lead.manualStatus || lead.manual_status).toLowerCase() === "discount calculated";
-}
-
-function buildDraftFunnelSummary(currentYearDrafts, visibleDrafts) {
-  const counts = {
-    all: currentYearDrafts.length,
-    completed: 0,
-    noManualShipping: 0,
-    lowShipping: 0,
-    dealerSales: 0,
-    noInventory: 0,
-    manualMarked: 0,
-    ready: 0,
-  };
-
-  for (const draft of currentYearDrafts) {
-    if (draft.completed) {
-      counts.completed += 1;
-      continue;
-    }
-    if (!draft.hasManualShipping) {
-      counts.noManualShipping += 1;
-      continue;
-    }
-    if (!hasHighManualShippingCost(draft)) {
-      counts.lowShipping += 1;
-      continue;
-    }
-    if (!isNonDealerSalesDraft(draft)) {
-      counts.dealerSales += 1;
-      continue;
-    }
-  }
-
-  for (const draft of visibleDrafts) {
-    if (draft.funnelStatus === "Needs Review") counts.noInventory += 1;
-    if (draft.leadStatus !== "Valid" && !["Needs Review", "Dealer Sales"].includes(draft.funnelStatus)) counts.manualMarked += 1;
-    if (draft.leadStatus === "Valid") counts.ready += 1;
-  }
-
-  return counts;
 }
 
 function incrementAgeBucket(buckets, ageHours) {
@@ -1483,7 +1364,6 @@ async function syncAssignmentToDataHub(assignment, requestBody) {
     lead_status: assignment.leadStatus,
     sales_notes: assignment.notes,
     notes: assignment.notes,
-    manual_status: assignment.manualStatus || "",
     assigned_at: assignment.assignedAt || null,
     updated_at: assignment.updatedAt,
     updated_by: text(requestBody.updatedBy || requestBody.updated_by || requestBody.userEmail || ""),
