@@ -238,16 +238,26 @@ textarea {
   color: #b91c1c;
 }
 
+.lead-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 0;
+  padding: 10px 14px;
+  border: 1px solid #c8d7ea;
+  border-width: 1px 0;
+  background: linear-gradient(180deg, #f6f9ff 0%, #eef5ff 100%);
+}
+
 .bulk-assign-bar {
   display: flex;
+  flex: 1 1 620px;
   flex-wrap: wrap;
   gap: 10px;
   align-items: end;
-  margin: 12px 0 10px;
-  padding: 10px 12px;
-  border: 1px solid #c8d7ea;
-  border-radius: 8px;
-  background: #f3f8ff;
+  min-width: 0;
 }
 
 .bulk-assign-bar[hidden] {
@@ -256,12 +266,25 @@ textarea {
 
 .bulk-assign-bar strong {
   align-self: center;
-  min-width: 96px;
+  min-width: 92px;
+  color: #0f172a;
   font-size: 13px;
+  font-weight: 800;
 }
 
 .bulk-assign-bar label {
-  width: 180px;
+  width: 190px;
+}
+
+.bulk-assign-bar label span {
+  color: #52647a;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.bulk-assign-bar button,
+.lead-pager button {
+  height: 36px;
 }
 
 .bulk-assign-status {
@@ -275,8 +298,8 @@ textarea {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  margin: 0 0 10px;
-  padding: 0 2px;
+  margin: 0;
+  padding: 0;
 }
 
 .lead-pager[hidden] {
@@ -284,18 +307,19 @@ textarea {
 }
 
 .lead-pager span {
-  color: var(--muted);
+  color: #334155;
   font-weight: 700;
-  min-width: 74px;
+  min-width: 82px;
   text-align: center;
 }
 
 .pager-arrow {
-  width: 36px;
+  width: 42px;
   height: 36px;
   padding: 0;
   font-size: 20px;
   line-height: 1;
+  border-radius: 8px;
 }
 
 input:focus,
@@ -995,5 +1019,18 @@ body[data-role="sales"] .sales-personal-summary {
   .sales-overview-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .lead-table-toolbar {
+    align-items: stretch;
+  }
+
+  .bulk-assign-bar,
+  .lead-pager {
+    width: 100%;
+  }
+
+  .lead-pager {
+    justify-content: flex-start;
   }
 }
