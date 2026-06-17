@@ -63,10 +63,10 @@ const baseColumns = [
   "Market",
   "Grade",
   "Checkout",
-  "Sales",
-  "Leads notes",
   "Created At Date",
   "Subtotal",
+  "Sales",
+  "Leads notes",
   "Shipping Name",
   "Checkout Phone",
   "Checkout Email",
@@ -900,6 +900,8 @@ function renderLeadRow(lead, options = {}) {
           <button class="copy-row-button" type="button" data-action="copy-row">Copy row</button>
         </div>
       </td>
+      ${cell(formatCreatedAtWithAge(lead))}
+      ${cell(formatMoney(lead.subtotal, lead.currency))}
       <td>
         <select data-field="sales" ${disabledSales}>
           <option value="">Unassigned</option>
@@ -915,8 +917,6 @@ function renderLeadRow(lead, options = {}) {
           </div>
         </div>
       </td>
-      ${cell(formatCreatedAtWithAge(lead))}
-      ${cell(formatMoney(lead.subtotal, lead.currency))}
       ${cell(lead.shippingName)}
       ${cell(lead.checkoutPhone)}
       ${cell(lead.checkoutEmail)}
@@ -1370,10 +1370,10 @@ function getExportValues(lead) {
     lead.market,
     lead.grade,
     lead.checkout,
-    lead.assignedSales,
-    getLeadNotes(lead),
     formatCreatedAtWithAge(lead),
     lead.subtotal,
+    lead.assignedSales,
+    getLeadNotes(lead),
     lead.shippingName,
     lead.checkoutPhone,
     lead.checkoutEmail,
