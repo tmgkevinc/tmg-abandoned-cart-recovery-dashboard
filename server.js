@@ -40,6 +40,15 @@ const SALES_USERS = [
   "Non-sales",
 ];
 
+const TAG_SALES_USERS = [
+  ...SALES_USERS.filter((name) => name !== "Non-sales"),
+  "Jake",
+  "Mobarak",
+  "Rachel F",
+  "Ryan",
+  "TJ Kainth",
+];
+
 const COUNTRY_META = {
   US: { currency: "USD", theme: "blue", siteBaseUrl: "https://www.tmgindustrial.com" },
   CA: { currency: "CAD", theme: "yellow", siteBaseUrl: "https://www.tmgindustrial.ca" },
@@ -162,7 +171,7 @@ async function handleLeads(url, res) {
     .sort(sortByGradeThenDate);
   const summary = buildSummary(withFunnel);
   summary.bySales = buildSalesAssignmentSummary(assignments, markets);
-  const salesUsers = await getActiveSalesUsers();
+  const salesUsers = mergeSalesUsers(await getActiveSalesUsers(), drafts.map((draft) => draft.tagSales));
 
   return sendJson(res, 200, {
     fetchedAt: startedAt.toISOString(),
@@ -261,7 +270,7 @@ function getSalesRosterName(row) {
     rachelf: "Rachel F",
     ryan: "Ryan",
     steven: "Steven",
-    tj: "T J",
+    tj: "TJ Kainth",
   };
   if (known[key]) return known[key];
 
@@ -1176,7 +1185,23 @@ function normalizeTags(value) {
 function matchSalesName(value) {
   const haystack = normalizeComparable(value);
   if (!haystack) return "";
-  return SALES_USERS.find((name) => name !== "Non-sales" && haystack.includes(normalizeComparable(name))) || "";
+  return TAG_SALES_USERS
+    .slice()
+    .sort((a, b) => normalizeComparable(b).length - normalizeComparable(a).length)
+    .find((name) => haystack.includes(normalizeComparable(name))) || "";
+}
+
+function mergeSalesUsers(baseUsers, extraUsers = []) {
+  const names = [...(baseUsers || []), ...extraUsers].map(text).filter(Boolean);
+  const deduped = [];
+  const seen = new Set();
+  for (const name of names) {
+    const key = normalizeComparable(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(name);
+  }
+  return deduped;
 }
 
 function hasHighManualShippingCost(draft) {
