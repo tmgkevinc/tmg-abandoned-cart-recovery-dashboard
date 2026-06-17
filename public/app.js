@@ -25,7 +25,6 @@ const els = {
   draftLeadStatusFilter: document.querySelector("#draftLeadStatusFilter"),
   draftSalesFilter: document.querySelector("#draftSalesFilter"),
   draftSearchInput: document.querySelector("#draftSearchInput"),
-  refreshButton: document.querySelector("#refreshButton"),
   marketSummary: document.querySelector("#marketSummary"),
   salesPersonalSummary: document.querySelector("#salesPersonalSummary"),
   leadTableHead: document.querySelector("#leadTableHead"),
@@ -116,7 +115,6 @@ els.switchUserButton.addEventListener("click", () => {
   els.loginOverlay.hidden = false;
 });
 
-els.refreshButton.addEventListener("click", loadAllData);
 els.exportSalesTabsButton.addEventListener("click", () => exportCsv(state.salesVisibleLeads, "sales-lead-detail"));
 els.exportDraftButton.addEventListener("click", () => exportCsv(state.visibleDrafts, "draft-recovery-leads"));
 els.bulkAssignButton.addEventListener("click", bulkAssignSelectedLeads);
@@ -295,8 +293,6 @@ async function loadFreshness() {
 }
 
 async function loadLeads() {
-  els.refreshButton.disabled = true;
-  els.refreshButton.textContent = "Loading...";
   try {
     const response = await fetch("/api/leads?market=US,CA,AU&limit=5000&all=1", { cache: "no-store" });
     const contentType = response.headers.get("content-type") || "";
@@ -317,9 +313,6 @@ async function loadLeads() {
     renderRulesFunnel();
     applyFilters();
     els.qualifiedSubtitle.textContent = error.message;
-  } finally {
-    els.refreshButton.disabled = false;
-    els.refreshButton.textContent = "Refresh Data Hub";
   }
 }
 
@@ -1109,7 +1102,7 @@ async function saveRowFromControl(control) {
   const row = control.closest("tr");
   const lead = findLead(row.dataset.market, row.dataset.id);
   if (!lead) {
-    alert("Could not find this lead in the loaded table. Refresh Data Hub and try again.");
+    alert("Could not find this lead in the loaded table. Reload the page and try again.");
     return false;
   }
   const changedField = control.dataset.field || "";
