@@ -169,20 +169,17 @@ async function handleDrafts(url) {
     .filter((market) => COUNTRY_META[market]);
   const limit = Math.max(25, Math.min(Number(url.searchParams.get("limit") || 10000), 50000));
   const startedAt = new Date();
-  const currentYear = startedAt.getFullYear();
-  const perMarketLimit = Math.max(25, Math.ceil(limit / Math.max(markets.length, 1)));
 
   const draftResults = await Promise.all(markets.map(async (market) => ({
     market,
-    records: await fetchDraftOrders(market, perMarketLimit),
+    records: await fetchDraftOrders(market, limit),
   })));
-  const productLookup = {};
+  const productLookup = await buildProductLookupFromCheckouts(draftResults);
   const assignments = await readAssignments(markets, 10000);
   const drafts = draftResults
     .flatMap((result) => result.records.map((record) => ({ record, market: result.market })))
     .map(({ record, market }) => normalizeDraft(record, market, productLookup))
     .filter((draft) => markets.includes(draft.market))
-    .filter((draft) => isCurrentYearDraft(draft, currentYear))
     .filter((draft) => !draft.completed && draft.hasManualShipping)
     .map((draft) => applyAssignment(draft, assignments))
     .map(applyDraftOpportunityStatus)
@@ -193,9 +190,6 @@ async function handleDrafts(url) {
     fetchedAt: startedAt.toISOString(),
     count: drafts.length,
     markets,
-    year: currentYear,
-    limit,
-    perMarketLimit,
     source: "draft-recovery",
     summary: buildDraftSummary(drafts),
     salesUsers,
@@ -673,7 +667,6 @@ function normalizeDraft(record, market, productLookup) {
     marginPercent: marginSummary.marginPercent,
     marginWithoutShipping: marginSummary.marginWithoutShipping,
     marginWithShipping: marginSummary.marginWithShipping,
-    marginWithShippingPercent: marginSummary.marginWithShippingPercent,
     currency,
     checkoutPhone: phone,
     checkoutEmail: email,
@@ -707,16 +700,7 @@ function normalizeDraft(record, market, productLookup) {
 
 function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippingIncludedInSubtotal = false) {
   const costs = lineItems.map((item) => item.totalCost).filter((value) => value !== null && value !== undefined);
-  if (!costs.length) {
-    return {
-      totalCost: null,
-      margin: null,
-      marginPercent: null,
-      marginWithoutShipping: null,
-      marginWithShipping: null,
-      marginWithShippingPercent: null,
-    };
-  }
+  if (!costs.length) return { totalCost: null, margin: null, marginPercent: null, marginWithoutShipping: null, marginWithShipping: null };
   const totalCost = costs.reduce((sum, value) => sum + Number(value || 0), 0);
   const subtotalRevenue = Number(subtotal || 0);
   const shipping = Number(shippingAmount || 0);
@@ -725,8 +709,7 @@ function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippin
   const marginWithoutShipping = revenueWithoutShipping - totalCost;
   const marginWithShipping = revenueWithShipping - totalCost;
   const marginPercent = revenueWithoutShipping ? marginWithoutShipping / revenueWithoutShipping : null;
-  const marginWithShippingPercent = revenueWithShipping ? marginWithShipping / revenueWithShipping : null;
-  return { totalCost, margin: marginWithoutShipping, marginPercent, marginWithoutShipping, marginWithShipping, marginWithShippingPercent };
+  return { totalCost, margin: marginWithoutShipping, marginPercent, marginWithoutShipping, marginWithShipping };
 }
 
 function getDraftShippingLine(raw) {
@@ -1173,12 +1156,6 @@ function booleanValue(value) {
   if (value === true) return true;
   if (value === false || value === null || value === undefined || value === "") return false;
   return ["true", "1", "yes", "y"].includes(text(value).toLowerCase());
-}
-
-function isCurrentYearDraft(draft, year) {
-  const timestamp = Date.parse(draft.createdAt || "");
-  if (!Number.isFinite(timestamp)) return false;
-  return new Date(timestamp).getFullYear() === year;
 }
 
 function buildSummary(leads) {
