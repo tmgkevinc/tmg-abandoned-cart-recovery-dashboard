@@ -979,64 +979,28 @@ th:nth-child(6) {
 }
 
 .lead-table:not(.selectable-lead-table) th:nth-child(6),
-.lead-table:not(.selectable-lead-table) td:nth-child(6) {
+.lead-table:not(.selectable-lead-table) td:nth-child(6),
+.lead-table:not(.selectable-lead-table) th:nth-child(8),
+.lead-table:not(.selectable-lead-table) td:nth-child(8),
+.lead-table:not(.selectable-lead-table) th:nth-child(13),
+.lead-table:not(.selectable-lead-table) td:nth-child(13),
+.lead-table:not(.selectable-lead-table) th:nth-child(18),
+.lead-table:not(.selectable-lead-table) td:nth-child(18),
+.lead-table:not(.selectable-lead-table) th:nth-child(24),
+.lead-table:not(.selectable-lead-table) td:nth-child(24),
+.lead-table:not(.selectable-lead-table) th:nth-child(30),
+.lead-table:not(.selectable-lead-table) td:nth-child(30),
+.lead-table:not(.selectable-lead-table) th:nth-child(36),
+.lead-table:not(.selectable-lead-table) td:nth-child(36),
+.lead-table:not(.selectable-lead-table) th:nth-child(42),
+.lead-table:not(.selectable-lead-table) td:nth-child(42),
+.lead-table:not(.selectable-lead-table) th:nth-child(48),
+.lead-table:not(.selectable-lead-table) td:nth-child(48),
+.lead-table:not(.selectable-lead-table) th:nth-child(54),
+.lead-table:not(.selectable-lead-table) td:nth-child(54),
+.lead-table:not(.selectable-lead-table) th:nth-child(60),
+.lead-table:not(.selectable-lead-table) td:nth-child(60) {
   border-right: 3px solid #3f4f63;
-}
-
-.lead-table:not(.selectable-lead-table) th:nth-child(19),
-.lead-table:not(.selectable-lead-table) td:nth-child(19) {
-  border-left: 1px solid var(--border);
-}
-
-th:nth-child(9),
-td:nth-child(9),
-th:nth-child(14),
-td:nth-child(14),
-th:nth-child(19),
-td:nth-child(19),
-th:nth-child(25),
-td:nth-child(25),
-th:nth-child(31),
-td:nth-child(31),
-th:nth-child(37),
-td:nth-child(37),
-th:nth-child(43),
-td:nth-child(43),
-th:nth-child(49),
-td:nth-child(49),
-th:nth-child(55),
-td:nth-child(55) {
-  border-left: 3px solid #3f4f63;
-}
-
-th:nth-child(13),
-td:nth-child(13),
-th:nth-child(18),
-td:nth-child(18),
-th:nth-child(24),
-td:nth-child(24),
-th:nth-child(30),
-td:nth-child(30),
-th:nth-child(36),
-td:nth-child(36),
-th:nth-child(42),
-td:nth-child(42),
-th:nth-child(48),
-td:nth-child(48),
-th:nth-child(54),
-td:nth-child(54),
-th:nth-child(60),
-td:nth-child(60) {
-  border-right: 3px solid #3f4f63;
-}
-
-.selectable-lead-table th:nth-child(9),
-.selectable-lead-table td:nth-child(9),
-.selectable-lead-table th:nth-child(14),
-.selectable-lead-table td:nth-child(14),
-.selectable-lead-table th:nth-child(19),
-.selectable-lead-table td:nth-child(19) {
-  border-left: 1px solid var(--border);
 }
 
 .selectable-lead-table th:nth-child(7),
@@ -1046,36 +1010,7 @@ td:nth-child(60) {
 .selectable-lead-table th:nth-child(14),
 .selectable-lead-table td:nth-child(14),
 .selectable-lead-table th:nth-child(19),
-.selectable-lead-table td:nth-child(19) {
-  border-right: 3px solid #3f4f63;
-}
-
-.selectable-lead-table th:nth-child(14),
-.selectable-lead-table td:nth-child(14),
-.selectable-lead-table th:nth-child(15),
-.selectable-lead-table td:nth-child(15),
-.selectable-lead-table th:nth-child(20),
-.selectable-lead-table td:nth-child(20) {
-  border-left: 1px solid var(--border);
-}
-
-.selectable-lead-table th:nth-child(24),
-.selectable-lead-table td:nth-child(24),
-.selectable-lead-table th:nth-child(30),
-.selectable-lead-table td:nth-child(30),
-.selectable-lead-table th:nth-child(36),
-.selectable-lead-table td:nth-child(36),
-.selectable-lead-table th:nth-child(42),
-.selectable-lead-table td:nth-child(42),
-.selectable-lead-table th:nth-child(48),
-.selectable-lead-table td:nth-child(48),
-.selectable-lead-table th:nth-child(54),
-.selectable-lead-table td:nth-child(54),
-.selectable-lead-table th:nth-child(60),
-.selectable-lead-table td:nth-child(60) {
-  border-right: 1px solid var(--border);
-}
-
+.selectable-lead-table td:nth-child(19),
 .selectable-lead-table th:nth-child(25),
 .selectable-lead-table td:nth-child(25),
 .selectable-lead-table th:nth-child(31),
@@ -1090,7 +1025,6 @@ td:nth-child(60) {
 .selectable-lead-table td:nth-child(55),
 .selectable-lead-table th:nth-child(61),
 .selectable-lead-table td:nth-child(61) {
-  border-left: 1px solid var(--border);
   border-right: 3px solid #3f4f63;
 }
 
