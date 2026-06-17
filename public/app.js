@@ -317,16 +317,22 @@ async function loadLeads() {
 
 async function loadDrafts() {
   try {
-    const response = await fetch("/api/drafts?market=US,CA,AU&limit=3000", { cache: "no-store" });
-    const data = await parseJsonResponse(response, "Draft API");
-    if (!response.ok) throw new Error(data.error || "Could not load drafts.");
-    state.salesUsers = data.salesUsers || state.salesUsers;
-    state.drafts = data.drafts || [];
-    state.draftFunnel = data.funnel || null;
-    renderDraftSummary(data.summary || {});
+    const results = await Promise.allSettled(markets.map(async (market) => {
+      const response = await fetch(`/api/drafts?market=${market}&limit=3000`, { cache: "no-store" });
+      const data = await parseJsonResponse(response, `Draft API ${market}`);
+      if (!response.ok) throw new Error(data.error || `Could not load ${market} drafts.`);
+      return data;
+    }));
+    const payloads = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
+    const failures = results.filter((result) => result.status === "rejected").map((result) => result.reason?.message || "Unknown draft API error");
+    if (!payloads.length) throw new Error(failures.join(" | ") || "Could not load drafts.");
+    state.salesUsers = [...new Set(payloads.flatMap((data) => data.salesUsers || state.salesUsers))];
+    state.drafts = payloads.flatMap((data) => data.drafts || []);
+    state.draftFunnel = null;
+    renderDraftSummary(mergeDraftSummaries(payloads));
     renderRulesFunnel();
     applyFilters();
-    els.draftSubtitle.textContent = `${state.drafts.length.toLocaleString()} open draft orders with manual shipping loaded from Data Hub.`;
+    els.draftSubtitle.textContent = `${state.drafts.length.toLocaleString()} open draft orders with manual shipping loaded from Data Hub.${failures.length ? ` ${failures.length} store load failed: ${failures.join(" | ")}` : ""}`;
   } catch (error) {
     state.drafts = [];
     state.draftFunnel = null;
@@ -335,6 +341,36 @@ async function loadDrafts() {
     applyFilters();
     els.draftSubtitle.textContent = error.message;
   }
+}
+
+function mergeDraftSummaries(payloads) {
+  const merged = {
+    byMarket: {},
+    latestCreatedAt: {},
+  };
+  for (const market of markets) {
+    merged.byMarket[market] = { total: 0, valid: 0, assigned: 0, amount: 0, validAmount: 0, manualShipping: 0 };
+  }
+  for (const payload of payloads) {
+    const byMarket = payload.summary?.byMarket || {};
+    for (const market of markets) {
+      const item = byMarket[market];
+      if (!item) continue;
+      merged.byMarket[market].total += Number(item.total || 0);
+      merged.byMarket[market].valid += Number(item.valid || 0);
+      merged.byMarket[market].assigned += Number(item.assigned || 0);
+      merged.byMarket[market].amount += Number(item.amount || 0);
+      merged.byMarket[market].validAmount += Number(item.validAmount || 0);
+      merged.byMarket[market].manualShipping += Number(item.manualShipping || 0);
+    }
+    const latest = payload.summary?.latestCreatedAt || {};
+    for (const market of markets) {
+      if (latest[market] && (!merged.latestCreatedAt[market] || new Date(latest[market]) > new Date(merged.latestCreatedAt[market]))) {
+        merged.latestCreatedAt[market] = latest[market];
+      }
+    }
+  }
+  return merged;
 }
 
 async function parseJsonResponse(response, label = "Dashboard API") {

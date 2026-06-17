@@ -37,8 +37,8 @@ if (!files.indexHtml.includes("High Shipping Not Completed Drafts")) {
   fail("public/index.html must include the high shipping drafts table.");
 }
 
-if (!files.appJs.includes("/api/drafts?market=US,CA,AU&limit=3000")) {
-  fail("public/app.js must call the high shipping drafts API.");
+if (!files.appJs.includes("/api/drafts?market=${market}&limit=3000") || !files.appJs.includes("Promise.allSettled")) {
+  fail("public/app.js must call the high shipping drafts API per market.");
 }
 
 if (!files.serverJs.includes("/api/data-hub/reports/draft-recovery") || !files.workerJs.includes("/api/data-hub/reports/draft-recovery")) {
