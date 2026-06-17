@@ -1207,11 +1207,11 @@ async function bulkAssignSelectedLeads() {
     }
   }
 
-  els.bulkAssignButton.disabled = false;
   els.bulkAssignStatus.textContent = failures.length
     ? `${savedCount} assigned, ${failures.length} failed`
     : `${savedCount} assigned`;
   applyFilters();
+  updateBulkAssignBar();
   if (failures.length) {
     alert(`Bulk assignment finished with errors:\n${failures.slice(0, 8).join("\n")}`);
   }
@@ -1232,9 +1232,10 @@ function updateBulkAssignBar() {
     if (!lead || getBulkDisabledReason(lead)) state.selectedLeadKeys.delete(key);
   }
   const selectedCount = state.selectedLeadKeys.size;
-  els.bulkAssignBar.hidden = state.role === "sales" || selectedCount === 0;
+  els.bulkAssignBar.hidden = state.role === "sales";
   els.bulkSelectedCount.textContent = `${selectedCount.toLocaleString()} selected`;
   els.bulkAssignButton.disabled = selectedCount === 0;
+  els.bulkClearButton.disabled = selectedCount === 0;
   const selectAll = els.leadTableHead.querySelector('[data-action="select-visible-leads"]');
   if (selectAll) {
     const selectedPageCount = pageAssignable.filter((lead) => state.selectedLeadKeys.has(leadSelectionKey(lead))).length;
