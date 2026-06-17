@@ -200,7 +200,6 @@ async function handleDrafts(url) {
   const drafts = normalizedDrafts
     .filter((draft) => !draft.completed && draft.hasManualShipping)
     .filter(hasHighManualShippingCost)
-    .filter(isNonDealerSalesDraft)
     .map((draft) => applyAssignment(draft, assignments))
     .map(applyDraftOpportunityStatus)
     .sort(sortBySubtotalDesc);
@@ -760,6 +759,7 @@ function applyDraftOpportunityStatus(draft) {
     ? rawSavedLeadStatus
     : "";
   const blockedReasons = [];
+  if (draft.isDealerSale) blockedReasons.push("Dealer sales draft");
   if (!hasProduct || !hasInventory) blockedReasons.push("No product with known inventory");
 
   const leadStatus = savedLeadStatus || (blockedReasons.length ? "Invalid" : "Valid");
@@ -767,7 +767,7 @@ function applyDraftOpportunityStatus(draft) {
     ...draft,
     leadStatus,
     salesStatus: leadStatus,
-    funnelStatus: blockedReasons.length ? "Needs Review" : "Ready",
+    funnelStatus: draft.isDealerSale ? "Dealer Sales" : blockedReasons.length ? "Needs Review" : "Ready",
     funnelReason: blockedReasons.length ? blockedReasons.join("; ") : "Open draft with manual shipping",
   };
 }
@@ -1156,7 +1156,7 @@ function normalizeTags(value) {
     } catch (error) {
       // Fall back to comma splitting below.
     }
-    return value.split(",").map(text).filter(Boolean);
+    return value.split(/[|,]/).map(text).filter(Boolean);
   }
   return [];
 }
@@ -1224,8 +1224,9 @@ function isDealerSalesDraft(raw, record, tags = []) {
   ];
   const haystack = [...tags, ...typeFields].map(normalizeComparable).filter(Boolean).join(" ");
   if (!haystack) return false;
-  if (/\bnon dealer\b/.test(haystack) || /\bnondealer\b/.test(haystack)) return false;
-  return /\bdealer\b/.test(haystack) || /\bdealer sales\b/.test(haystack);
+  if (haystack.includes("nondealer")) return false;
+  const tokens = haystack.split(/\s+/).filter(Boolean);
+  return tokens.includes("dealer") || haystack.includes("dealersale") || haystack.includes("dealersales");
 }
 
 function booleanValue(value) {
@@ -1352,12 +1353,15 @@ function buildDraftFunnelSummary(currentYearDrafts, visibleDrafts) {
       counts.lowShipping += 1;
       continue;
     }
-    if (!isNonDealerSalesDraft(draft)) counts.dealerSales += 1;
+    if (!isNonDealerSalesDraft(draft)) {
+      counts.dealerSales += 1;
+      continue;
+    }
   }
 
   for (const draft of visibleDrafts) {
     if (draft.funnelStatus === "Needs Review") counts.noInventory += 1;
-    if (draft.leadStatus !== "Valid" && draft.funnelStatus !== "Needs Review") counts.manualMarked += 1;
+    if (draft.leadStatus !== "Valid" && !["Needs Review", "Dealer Sales"].includes(draft.funnelStatus)) counts.manualMarked += 1;
     if (draft.leadStatus === "Valid") counts.ready += 1;
   }
 

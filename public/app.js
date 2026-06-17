@@ -488,8 +488,8 @@ function renderRulesFunnel() {
     {
       label: "Non-dealer sales gate",
       count: counts.dealerSales,
-      rule: "Only non-dealer sales drafts continue. Drafts flagged as dealer sales by Data Hub fields or draft tags are removed.",
-      outcome: "Dealer sales drafts are excluded from this recovery workflow.",
+      rule: "Only non-dealer sales drafts continue. Drafts flagged as dealer sales by Data Hub fields or draft tags are marked Invalid.",
+      outcome: "Dealer sales drafts are excluded from recovery-ready candidates but remain visible for review.",
     },
     {
       label: "Inventory gate",
@@ -647,7 +647,7 @@ function getDraftFunnelCounts(drafts) {
     if (Number(draft.manualShippingPrice || 0) <= 100) counts.lowShipping += 1;
     if (draft.isDealerSale) counts.dealerSales += 1;
     if (draft.funnelStatus === "Needs Review") counts.noInventory += 1;
-    if (draft.leadStatus !== "Valid" && draft.funnelStatus !== "Needs Review") counts.manualMarked += 1;
+    if (draft.leadStatus !== "Valid" && !["Needs Review", "Dealer Sales"].includes(draft.funnelStatus)) counts.manualMarked += 1;
     if (draft.leadStatus === "Valid") counts.ready += 1;
   }
 
@@ -1503,6 +1503,7 @@ function getInvalidReasonNote(lead) {
   if (funnelStatus === "Too New") return `Invalid: ${funnelReason || "less than 72 hours old"}`;
   if (funnelStatus === "No Phone") return `Invalid: ${funnelReason || "no checkout phone"}`;
   if (funnelStatus === "Duplicate") return `Invalid: ${funnelReason || "older checkout with same customer name and products"}`;
+  if (funnelStatus === "Dealer Sales") return `Invalid: ${funnelReason || "dealer sales draft"}`;
   if (funnelStatus === "No Inventory") return `Invalid: ${funnelReason || "all non-PP/PSP/surcharge products have no inventory"}`;
   if (funnelReason && !["Ready", "Older Than 30 Days"].includes(funnelStatus)) return `Invalid: ${funnelStatus} - ${funnelReason}`;
   return "Invalid: manually marked";
