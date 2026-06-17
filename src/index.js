@@ -635,15 +635,9 @@ function normalizeDraft(record, market, productLookup) {
   const shipping = raw.shipping_address || raw.shippingAddress || {};
   const billing = raw.billing_address || raw.billingAddress || {};
   const allLineItems = getLineItems(raw);
-  const manualShippingItem = allLineItems.find(isManualShippingLineItem);
-  const explicitShippingLine = getDraftShippingLine(raw);
-  const shippingLine = hasManualShippingLine(explicitShippingLine)
-    ? explicitShippingLine
-    : manualShippingItem
-      ? { title: manualShippingItem.title, price: manualShippingItem.checkoutPrice }
-      : {};
+  const shippingLine = getDraftShippingLine(raw);
   const lineItems = allLineItems
-    .filter((item) => item !== manualShippingItem && !isPpProduct(item))
+    .filter((item) => !isPpProduct(item))
     .map((item) => enrichLineItemFromProducts(item, productLookup?.[market]));
   const completedAt = text(raw.completed_at || raw.completedAt || record.completed_at || record.completedAt);
   const status = text(raw.status || record.status);
@@ -669,7 +663,7 @@ function normalizeDraft(record, market, productLookup) {
   const tags = normalizeTags(raw.tags || record.tags);
   const tagSales = matchSalesName(tags.join(" "));
   const ageHours = createdAt ? Math.max(0, (Date.now() - new Date(createdAt).getTime()) / 36e5) : null;
-  const marginSummary = calculateMarginSummary(lineItems, subtotal, manualShippingPrice, Boolean(manualShippingItem));
+  const marginSummary = calculateMarginSummary(lineItems, subtotal, manualShippingPrice, false);
 
   return {
     id: draftId || draftName,
@@ -753,13 +747,6 @@ function hasManualShippingLine(line) {
   const label = text(line.title || line.name || line.code || line.custom || line.handle);
   const price = number(line.price || line.price_set?.shop_money?.amount || line.priceSet?.shopMoney?.amount);
   return Boolean(label) || price > 0;
-}
-
-function isManualShippingLineItem(item) {
-  const sku = text(item.sku).toUpperCase();
-  const title = text(item.title).toUpperCase();
-  if (sku.startsWith("PP") || title.includes("PREMIUM SHIPPING PROTECTION") || title === "PSP") return false;
-  return title.includes("SURCHARGE") || title.includes("FREIGHT") || title.includes("DELIVERY") || title.includes("MANUAL SHIPPING");
 }
 
 function applyDraftOpportunityStatus(draft) {
