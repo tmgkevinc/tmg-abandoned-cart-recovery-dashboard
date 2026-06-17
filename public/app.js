@@ -53,7 +53,7 @@ const els = {
   rulesFunnel: document.querySelector("#rulesFunnel"),
 };
 
-const leadStatuses = ["Valid", "Invalid", "Recovered Auto", "Recovered by Sales"];
+const leadStatuses = ["Valid", "Drafted", "Invalid", "Recovered Auto", "Recovered by Sales"];
 const gradeOrder = ["A+!", "A+", "A!", "A", "A-!", "A-", "B+!", "B+", "B!", "B", "B-!", "B-"];
 const markets = ["US", "CA", "AU"];
 
@@ -508,8 +508,8 @@ function renderDraftSummary(summary) {
       return `
         <article class="metric market-${market.toLowerCase()}">
           <span>${market}</span>
-          <strong>${Number(item.valid || 0).toLocaleString()} recovery-ready / ${Number(item.total || 0).toLocaleString()} manual-shipping drafts</strong>
-          <small>${formatMoney(item.validAmount || 0, marketCurrency(market))} recovery-ready / ${formatMoney(item.amount || 0, marketCurrency(market))} total</small>
+          <strong>&nbsp; / ${Number(item.valid || 0).toLocaleString()} recovery-ready</strong>
+          <small>&nbsp; / ${formatMoney(item.validAmount || 0, marketCurrency(market))} recovery-ready</small>
           <small>${Number(item.assigned || 0).toLocaleString()} valid assigned</small>
           <small>Latest: ${latest[market] ? formatDateTime(latest[market]) : "-"}</small>
         </article>
@@ -593,6 +593,7 @@ function renderRulesFunnel() {
 
   const statusRules = [
     ["Valid", "Lead qualifies for sales follow-up."],
+    ["Drafted", "A draft has been created for the lead and it should be tracked separately from active Valid leads."],
     ["Invalid", "Lead does not qualify, or sales/admin manually marked it as not useful."],
     ["Recovered Auto", "Data Hub shows a recovered order, but there was no earlier sales assignment before the order date."],
     ["Recovered by Sales", "The lead was assigned to a sales person before the recovered order was created."],
