@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TMG High Shipping Not Completed Draft</title>
-    <link rel="stylesheet" href="/styles.css?v=20260617-0108" />
+    <title>TMG Abandoned Cart Leads Recovery</title>
+    <link rel="stylesheet" href="/styles.css?v=20260618-0750" />
   </head>
   <body>
     <div id="loginOverlay" class="login-overlay">
       <form id="loginForm" class="login-card">
         <p class="eyebrow">TMG Data Hub</p>
-        <h1>TMG High Shipping Not Completed Draft</h1>
+        <h1>TMG Abandoned Cart Leads Recovery</h1>
         <label>
           <span>User</span>
           <select id="loginUser">
@@ -32,23 +32,30 @@
     <main class="app-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Draft Checks and Recovery</p>
-          <h1>TMG High Shipping Not Completed Draft</h1>
+          <p class="eyebrow">Lead Checks and Assignment</p>
+          <h1>TMG Abandoned Cart Leads Recovery</h1>
           <p id="dataFreshness" class="subtle">Data Hub status has not loaded yet.</p>
         </div>
         <div class="user-panel">
           <span id="currentUserLabel">Not signed in</span>
+          <div id="adminSalesPreviewControls" class="admin-sales-preview" hidden>
+            <select id="adminSalesPreviewSelect" aria-label="Preview sales user">
+              <option value="">Choose sales view</option>
+            </select>
+            <button id="adminSalesPreviewButton" type="button">View Sales</button>
+            <button id="adminSalesPreviewExitButton" type="button" hidden>Back to Admin</button>
+          </div>
           <button id="switchUserButton" type="button">Switch User</button>
         </div>
       </header>
 
       <nav class="tab-nav" aria-label="Dashboard tabs">
-        <button class="tab-button" type="button" data-tab="workspace" hidden>Lead Workspace</button>
-        <button class="tab-button active" type="button" data-tab="drafts">Draft Recovery</button>
-        <button class="tab-button" type="button" data-tab="rules">Rules & Funnel</button>
+        <button class="tab-button active" type="button" data-tab="workspace">Lead Workspace</button>
+        <button class="tab-button" type="button" data-tab="drafts" hidden>Draft Recovery</button>
+        <button class="tab-button" type="button" data-tab="rules">Rules</button>
       </nav>
 
-      <section id="workspaceTab" class="tab-panel">
+      <section id="workspaceTab" class="tab-panel active">
         <section id="marketSummary" class="metric-grid" aria-label="Market summary"></section>
 
         <section id="salesPersonalSummary" class="sales-personal-summary" aria-label="Sales personal summary"></section>
@@ -64,11 +71,11 @@
         <section class="panel qualified-panel">
           <div class="panel-header">
             <div>
-              <h2>Draft Candidates</h2>
-              <p id="qualifiedSubtitle">Load Data Hub drafts to begin.</p>
+              <h2>Abandoned Cart Leads</h2>
+              <p id="qualifiedSubtitle">Load Data Hub leads to begin.</p>
             </div>
           </div>
-          <section class="controls lead-panel-controls" aria-label="Draft candidate filters">
+          <section class="controls lead-panel-controls" aria-label="Abandoned cart lead filters">
             <label>
               <span>Market</span>
               <select id="marketFilter">
@@ -83,6 +90,8 @@
               <select id="leadStatusFilter">
                 <option value="ALL">All</option>
                 <option value="Valid" selected>Valid</option>
+                <option value="Drafted">Drafted</option>
+                <option value="Closed">Closed</option>
                 <option value="Invalid">Invalid</option>
                 <option value="Recovered Auto">Recovered Auto</option>
                 <option value="Recovered by Sales">Recovered by Sales</option>
@@ -95,10 +104,31 @@
               </select>
             </label>
             <label>
+              <span>! grade</span>
+              <select id="bangGradeFilter">
+                <option value="ALL">All</option>
+                <option value="ONLY">Only ! grades</option>
+              </select>
+            </label>
+            <label>
               <span>Assigned sales</span>
               <select id="salesFilter">
                 <option value="ALL">All sales</option>
               </select>
+            </label>
+            <label>
+              <span>Time zone</span>
+              <select id="timeZoneFilter">
+                <option value="ALL">All time zones</option>
+              </select>
+            </label>
+            <label>
+              <span>Min subtotal</span>
+              <input id="minSubtotalFilter" type="number" inputmode="decimal" min="0" step="1" placeholder="0" />
+            </label>
+            <label>
+              <span>Max subtotal</span>
+              <input id="maxSubtotalFilter" type="number" inputmode="decimal" min="0" step="1" placeholder="No max" />
             </label>
             <label class="search-field">
               <span>Search</span>
@@ -130,6 +160,7 @@
               <tbody id="leadTableBody"></tbody>
             </table>
           </div>
+          <div id="leadCardList" class="lead-card-list"></div>
         </section>
 
         <section class="panel sales-detail-panel">
@@ -138,7 +169,14 @@
               <h2>Sales Lead Details</h2>
               <p id="salesDetailSubtitle">Sales view shows only the signed-in user's assigned leads.</p>
             </div>
-            <button id="exportSalesTabsButton" type="button">Export Sales CSV</button>
+            <div class="sales-header-actions">
+              <div id="salesCardPager" class="lead-pager sales-card-pager" hidden>
+                <button id="salesPrevPage" class="pager-arrow" type="button" aria-label="Previous sales lead">&lsaquo;</button>
+                <span id="salesPageInfo">1 / 1</span>
+                <button id="salesNextPage" class="pager-arrow" type="button" aria-label="Next sales lead">&rsaquo;</button>
+              </div>
+              <button id="exportSalesTabsButton" type="button">Export Sales CSV</button>
+            </div>
           </div>
           <section class="detail-controls" aria-label="Sales lead detail filters">
             <label>
@@ -155,6 +193,8 @@
               <select id="salesLeadStatusFilter">
                 <option value="ALL">All</option>
                 <option value="Valid" selected>Valid</option>
+                <option value="Drafted">Drafted</option>
+                <option value="Closed">Closed</option>
                 <option value="Invalid">Invalid</option>
                 <option value="Recovered Auto">Recovered Auto</option>
                 <option value="Recovered by Sales">Recovered by Sales</option>
@@ -167,26 +207,56 @@
               </select>
             </label>
             <label>
+              <span>! grade</span>
+              <select id="salesBangGradeFilter">
+                <option value="ALL">All</option>
+                <option value="ONLY">Only ! grades</option>
+              </select>
+            </label>
+            <label>
               <span>Assigned sales</span>
               <select id="salesDetailSalesFilter">
                 <option value="ALL">All sales</option>
               </select>
+              <div id="salesAssignedUserLocked" class="locked-sales-filter" hidden></div>
+            </label>
+            <label>
+              <span>Assigned date</span>
+              <select id="salesAssignedDateFilter">
+                <option value="ALL">All assigned dates</option>
+              </select>
+            </label>
+            <label>
+              <span>Time zone</span>
+              <select id="salesTimeZoneFilter">
+                <option value="ALL">All time zones</option>
+              </select>
+            </label>
+            <label>
+              <span>Min subtotal</span>
+              <input id="salesMinSubtotalFilter" type="number" inputmode="decimal" min="0" step="1" placeholder="0" />
+            </label>
+            <label>
+              <span>Max subtotal</span>
+              <input id="salesMaxSubtotalFilter" type="number" inputmode="decimal" min="0" step="1" placeholder="No max" />
             </label>
             <label class="search-field">
               <span>Search</span>
               <input id="salesSearchInput" type="search" placeholder="Checkout, name, email, phone, SKU" />
             </label>
           </section>
+          <div id="salesQuickList" class="sales-quick-list" aria-label="Sales lead quick list"></div>
           <div class="table-wrap">
             <table class="lead-table">
               <thead id="salesTableHead"></thead>
               <tbody id="salesTableBody"></tbody>
             </table>
           </div>
+          <div id="salesCardList" class="lead-card-list"></div>
         </section>
       </section>
 
-      <section id="draftsTab" class="tab-panel active">
+      <section id="draftsTab" class="tab-panel">
         <section id="draftSummary" class="metric-grid" aria-label="Draft recovery summary"></section>
 
         <section class="controls" aria-label="Draft filters">
@@ -204,6 +274,8 @@
             <select id="draftLeadStatusFilter">
               <option value="ALL" selected>All</option>
               <option value="Valid">Valid</option>
+              <option value="Drafted">Drafted</option>
+              <option value="Closed">Closed</option>
               <option value="Invalid">Invalid</option>
               <option value="Recovered Auto">Recovered Auto</option>
               <option value="Recovered by Sales">Recovered by Sales</option>
@@ -225,7 +297,7 @@
         <section class="panel">
           <div class="panel-header">
             <div>
-              <h2>High Shipping Not Completed Drafts</h2>
+              <h2>Draft Recovery Leads</h2>
               <p id="draftSubtitle">Draft orders with manual shipping will load from Data Hub.</p>
             </div>
           </div>
@@ -251,7 +323,7 @@
       </section>
     </main>
 
-    <script src="/app.js?v=20260617-0215"></script>
+    <script src="/app.js?v=20260618-0750"></script>
   </body>
 </html>
 
