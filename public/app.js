@@ -6,6 +6,10 @@ const els = {
   loginStatus: document.querySelector("#loginStatus"),
   currentUserLabel: document.querySelector("#currentUserLabel"),
   switchUserButton: document.querySelector("#switchUserButton"),
+  adminSalesPreviewControls: document.querySelector("#adminSalesPreviewControls"),
+  adminSalesPreviewSelect: document.querySelector("#adminSalesPreviewSelect"),
+  adminSalesPreviewButton: document.querySelector("#adminSalesPreviewButton"),
+  adminSalesPreviewExitButton: document.querySelector("#adminSalesPreviewExitButton"),
   dataFreshness: document.querySelector("#dataFreshness"),
   tabButtons: document.querySelectorAll("[data-tab]"),
   workspaceTab: document.querySelector("#workspaceTab"),
@@ -14,12 +18,22 @@ const els = {
   marketFilter: document.querySelector("#marketFilter"),
   leadStatusFilter: document.querySelector("#leadStatusFilter"),
   gradeFilter: document.querySelector("#gradeFilter"),
+  bangGradeFilter: document.querySelector("#bangGradeFilter"),
   salesFilter: document.querySelector("#salesFilter"),
+  timeZoneFilter: document.querySelector("#timeZoneFilter"),
+  minSubtotalFilter: document.querySelector("#minSubtotalFilter"),
+  maxSubtotalFilter: document.querySelector("#maxSubtotalFilter"),
   searchInput: document.querySelector("#searchInput"),
   salesMarketFilter: document.querySelector("#salesMarketFilter"),
   salesLeadStatusFilter: document.querySelector("#salesLeadStatusFilter"),
   salesGradeFilter: document.querySelector("#salesGradeFilter"),
+  salesBangGradeFilter: document.querySelector("#salesBangGradeFilter"),
   salesDetailSalesFilter: document.querySelector("#salesDetailSalesFilter"),
+  salesAssignedUserLocked: document.querySelector("#salesAssignedUserLocked"),
+  salesAssignedDateFilter: document.querySelector("#salesAssignedDateFilter"),
+  salesTimeZoneFilter: document.querySelector("#salesTimeZoneFilter"),
+  salesMinSubtotalFilter: document.querySelector("#salesMinSubtotalFilter"),
+  salesMaxSubtotalFilter: document.querySelector("#salesMaxSubtotalFilter"),
   salesSearchInput: document.querySelector("#salesSearchInput"),
   draftMarketFilter: document.querySelector("#draftMarketFilter"),
   draftLeadStatusFilter: document.querySelector("#draftLeadStatusFilter"),
@@ -29,6 +43,7 @@ const els = {
   salesPersonalSummary: document.querySelector("#salesPersonalSummary"),
   leadTableHead: document.querySelector("#leadTableHead"),
   leadTableBody: document.querySelector("#leadTableBody"),
+  leadCardList: document.querySelector("#leadCardList"),
   qualifiedSubtitle: document.querySelector("#qualifiedSubtitle"),
   bulkAssignBar: document.querySelector("#bulkAssignBar"),
   bulkSelectedCount: document.querySelector("#bulkSelectedCount"),
@@ -43,6 +58,12 @@ const els = {
   salesOverview: document.querySelector("#salesOverview"),
   salesTableHead: document.querySelector("#salesTableHead"),
   salesTableBody: document.querySelector("#salesTableBody"),
+  salesQuickList: document.querySelector("#salesQuickList"),
+  salesCardList: document.querySelector("#salesCardList"),
+  salesCardPager: document.querySelector("#salesCardPager"),
+  salesPrevPage: document.querySelector("#salesPrevPage"),
+  salesNextPage: document.querySelector("#salesNextPage"),
+  salesPageInfo: document.querySelector("#salesPageInfo"),
   salesDetailSubtitle: document.querySelector("#salesDetailSubtitle"),
   draftSummary: document.querySelector("#draftSummary"),
   draftTableHead: document.querySelector("#draftTableHead"),
@@ -53,7 +74,7 @@ const els = {
   rulesFunnel: document.querySelector("#rulesFunnel"),
 };
 
-const leadStatuses = ["Valid", "Drafted", "Invalid", "Recovered Auto", "Recovered by Sales"];
+const leadStatuses = ["Valid", "Drafted", "Closed", "Invalid", "Recovered Auto", "Recovered by Sales"];
 const gradeOrder = ["A+!", "A+", "A!", "A", "A-!", "A-", "B+!", "B+", "B!", "B", "B-!", "B-"];
 const markets = ["US", "CA", "AU"];
 
@@ -65,6 +86,7 @@ const baseColumns = [
   "Created At Date",
   "Subtotal",
   "Sales",
+  "Assigned Time",
   "Leads notes",
   "Shipping Name",
   "Checkout Phone",
@@ -85,6 +107,11 @@ let state = {
   authMode: "manual",
   authBlocked: false,
   authEmail: "",
+  salesPreview: {
+    active: false,
+    adminUser: null,
+    adminRole: "admin",
+  },
   salesUsers: [],
   leads: [],
   drafts: [],
@@ -95,13 +122,17 @@ let state = {
   visibleDrafts: [],
   selectedLeadKeys: new Set(),
   leadPage: 1,
+  salesPage: 1,
+  salesControlsPopulated: false,
 };
 
 const leadPageSize = 5;
+const salesPageSize = 1;
 
 els.loginForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (state.authMode === "cloudflare_access") return;
+  resetSalesPreview();
   state.user = els.loginUser.value;
   state.role = els.loginRole.value;
   localStorage.setItem("tmgLeadRecoverySession", JSON.stringify({ user: state.user, role: state.role }));
@@ -114,6 +145,9 @@ els.switchUserButton.addEventListener("click", () => {
   if (state.authMode === "cloudflare_access") return;
   els.loginOverlay.hidden = false;
 });
+els.adminSalesPreviewButton.addEventListener("click", enterSalesPreview);
+els.adminSalesPreviewExitButton.addEventListener("click", exitSalesPreview);
+els.adminSalesPreviewSelect.addEventListener("change", renderUserMode);
 
 els.exportSalesTabsButton.addEventListener("click", () => exportCsv(state.salesVisibleLeads, "sales-lead-detail"));
 els.exportDraftButton.addEventListener("click", () => exportCsv(state.visibleDrafts, "draft-recovery-leads"));
@@ -121,9 +155,21 @@ els.bulkAssignButton.addEventListener("click", bulkAssignSelectedLeads);
 els.bulkClearButton.addEventListener("click", clearBulkSelection);
 els.leadPrevPage.addEventListener("click", () => changeLeadPage(-1));
 els.leadNextPage.addEventListener("click", () => changeLeadPage(1));
+els.salesPrevPage.addEventListener("click", () => changeSalesPage(-1));
+els.salesNextPage.addEventListener("click", () => changeSalesPage(1));
 els.tabButtons.forEach((button) => button.addEventListener("click", () => setActiveTab(button.dataset.tab)));
 
-for (const control of [els.marketFilter, els.leadStatusFilter, els.gradeFilter, els.salesFilter, els.searchInput]) {
+for (const control of [
+  els.marketFilter,
+  els.leadStatusFilter,
+  els.gradeFilter,
+  els.bangGradeFilter,
+  els.salesFilter,
+  els.timeZoneFilter,
+  els.minSubtotalFilter,
+  els.maxSubtotalFilter,
+  els.searchInput,
+]) {
   control.addEventListener("input", applyFilters);
 }
 
@@ -131,7 +177,12 @@ for (const control of [
   els.salesMarketFilter,
   els.salesLeadStatusFilter,
   els.salesGradeFilter,
+  els.salesBangGradeFilter,
   els.salesDetailSalesFilter,
+  els.salesAssignedDateFilter,
+  els.salesTimeZoneFilter,
+  els.salesMinSubtotalFilter,
+  els.salesMaxSubtotalFilter,
   els.salesSearchInput,
 ]) {
   control.addEventListener("input", applyFilters);
@@ -146,9 +197,17 @@ els.leadTableHead.addEventListener("change", handleLeadSelectionChange);
 els.leadTableBody.addEventListener("change", handleLeadSelectionChange);
 els.leadTableBody.addEventListener("input", handleLeadInput);
 els.leadTableBody.addEventListener("click", handleLeadClick);
+els.leadCardList.addEventListener("change", handleLeadChange);
+els.leadCardList.addEventListener("change", handleLeadSelectionChange);
+els.leadCardList.addEventListener("input", handleLeadInput);
+els.leadCardList.addEventListener("click", handleLeadClick);
 els.salesTableBody.addEventListener("change", handleLeadChange);
 els.salesTableBody.addEventListener("input", handleLeadInput);
 els.salesTableBody.addEventListener("click", handleLeadClick);
+els.salesQuickList.addEventListener("click", handleSalesQuickListClick);
+els.salesCardList.addEventListener("change", handleLeadChange);
+els.salesCardList.addEventListener("input", handleLeadInput);
+els.salesCardList.addEventListener("click", handleLeadClick);
 els.draftTableBody.addEventListener("change", handleLeadChange);
 els.draftTableBody.addEventListener("input", handleLeadInput);
 els.draftTableBody.addEventListener("click", handleLeadClick);
@@ -166,6 +225,7 @@ async function initialize() {
 }
 
 async function loadAllData() {
+  await loadLeads();
   await loadDrafts();
 }
 
@@ -189,6 +249,7 @@ async function loadSession() {
     if (state.authMode !== "cloudflare_access") return false;
 
     state.salesUsers = session.salesUsers || state.salesUsers;
+    populateSalesUserControls();
     if (!session.authenticated) {
       state.authBlocked = true;
       els.loginOverlay.hidden = false;
@@ -200,6 +261,7 @@ async function loadSession() {
 
     state.user = session.user;
     state.role = session.role;
+    resetSalesPreview();
     els.loginUser.value = session.user;
     els.loginRole.value = session.role;
     els.loginOverlay.hidden = true;
@@ -227,29 +289,7 @@ async function loadHealth() {
       return;
     }
     state.salesUsers = health.salesUsers || [];
-    els.loginUser.innerHTML = [
-      `<option value="Admin">Admin</option>`,
-      ...state.salesUsers.filter((name) => name !== "Non-sales").map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
-    ].join("");
-    els.salesFilter.innerHTML = [
-      `<option value="ALL">All sales</option>`,
-      `<option value="">Unassigned</option>`,
-      ...state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
-    ].join("");
-    els.salesFilter.value = "";
-    els.bulkAssignSales.innerHTML = [
-      `<option value="">Choose sales</option>`,
-      ...state.salesUsers.filter((name) => name !== "Non-sales").map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
-    ].join("");
-    els.salesDetailSalesFilter.innerHTML = [
-      `<option value="ALL">All sales</option>`,
-      ...state.salesUsers.filter((name) => name !== "Non-sales").map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
-    ].join("");
-    els.draftSalesFilter.innerHTML = [
-      `<option value="ALL">All sales</option>`,
-      `<option value="">Unassigned</option>`,
-      ...state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
-    ].join("");
+    populateSalesUserControls();
     els.loginStatus.textContent = health.dataHubConfigured
       ? "Data Hub connection is configured."
       : "Data Hub environment variables are missing on the dashboard server.";
@@ -265,6 +305,7 @@ function restoreSession() {
     if (session.user && session.role) {
       state.user = session.user;
       state.role = session.role;
+      resetSalesPreview();
       els.loginUser.value = session.user;
       els.loginRole.value = session.role;
       els.loginOverlay.hidden = true;
@@ -275,6 +316,86 @@ function restoreSession() {
     // Ignore broken saved sessions.
   }
   els.loginOverlay.hidden = false;
+}
+
+function resetSalesPreview() {
+  state.salesPreview.active = false;
+  state.salesPreview.adminUser = null;
+  state.salesPreview.adminRole = "admin";
+}
+
+function populateSalesUserControls() {
+  const salesOptions = state.salesUsers.filter((name) => name !== "Non-sales");
+  const alreadyPopulated = state.salesControlsPopulated;
+  const previousSalesFilter = alreadyPopulated ? els.salesFilter.value : "";
+  const previousSalesDetailFilter = alreadyPopulated ? els.salesDetailSalesFilter.value : "ALL";
+  const previousDraftSalesFilter = alreadyPopulated ? els.draftSalesFilter.value : "ALL";
+  const previousBulkSales = els.bulkAssignSales.value;
+  const previousPreviewSales = els.adminSalesPreviewSelect.value;
+
+  els.loginUser.innerHTML = [
+    `<option value="Admin">Admin</option>`,
+    ...salesOptions.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
+  ].join("");
+  els.salesFilter.innerHTML = [
+    `<option value="ALL">All sales</option>`,
+    `<option value="">Unassigned</option>`,
+    ...state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
+  ].join("");
+  els.bulkAssignSales.innerHTML = [
+    `<option value="">Choose sales</option>`,
+    ...salesOptions.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
+  ].join("");
+  els.salesDetailSalesFilter.innerHTML = [
+    `<option value="ALL">All sales</option>`,
+    ...salesOptions.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
+  ].join("");
+  els.draftSalesFilter.innerHTML = [
+    `<option value="ALL">All sales</option>`,
+    `<option value="">Unassigned</option>`,
+    ...state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
+  ].join("");
+  els.adminSalesPreviewSelect.innerHTML = [
+    `<option value="">Choose sales view</option>`,
+    ...salesOptions.map((name) => `<option value="${escapeAttribute(name)}">${escapeHtml(name)}</option>`),
+  ].join("");
+
+  setSelectValueIfAvailable(els.salesFilter, previousSalesFilter || "");
+  setSelectValueIfAvailable(els.salesDetailSalesFilter, previousSalesDetailFilter || "ALL");
+  setSelectValueIfAvailable(els.draftSalesFilter, previousDraftSalesFilter || "ALL");
+  setSelectValueIfAvailable(els.bulkAssignSales, previousBulkSales || "");
+  setSelectValueIfAvailable(els.adminSalesPreviewSelect, previousPreviewSales || "");
+  state.salesControlsPopulated = true;
+}
+
+function setSelectValueIfAvailable(select, value) {
+  const hasValue = [...select.options].some((option) => option.value === value);
+  if (hasValue) select.value = value;
+}
+
+function enterSalesPreview() {
+  const salesUser = els.adminSalesPreviewSelect.value;
+  if (!salesUser) return;
+  if (!state.salesPreview.active) {
+    state.salesPreview.adminUser = state.user || "Admin";
+    state.salesPreview.adminRole = state.role || "admin";
+  }
+  state.salesPreview.active = true;
+  state.user = salesUser;
+  state.role = "sales";
+  renderUserMode();
+  applyFilters();
+}
+
+function exitSalesPreview() {
+  if (!state.salesPreview.active) return;
+  state.user = state.salesPreview.adminUser || "Admin";
+  state.role = state.salesPreview.adminRole || "admin";
+  state.salesPreview.active = false;
+  state.salesPreview.adminUser = null;
+  state.salesPreview.adminRole = "admin";
+  renderUserMode();
+  applyFilters();
 }
 
 async function loadFreshness() {
@@ -300,9 +421,11 @@ async function loadLeads() {
       : { error: `Dashboard API returned ${response.status} ${response.statusText || ""} instead of JSON.` };
     if (!response.ok) throw new Error(data.error || "Could not load leads.");
     state.salesUsers = data.salesUsers || state.salesUsers;
+    populateSalesUserControls();
     state.leads = data.leads || [];
     state.selectedLeadKeys.clear();
     populateGradeFilter(state.leads);
+    populateTimeZoneFilter(state.leads);
     renderSummary(data.summary || {});
     renderRulesFunnel();
     applyFilters();
@@ -317,17 +440,17 @@ async function loadLeads() {
 
 async function loadDrafts() {
   try {
-    const results = await Promise.allSettled(markets.map(loadDraftMarketPages));
-    const payloads = results.filter((result) => result.status === "fulfilled").flatMap((result) => result.value);
-    const failures = results.filter((result) => result.status === "rejected").map((result) => result.reason?.message || "Unknown draft API error");
-    if (!payloads.length) throw new Error(failures.join(" | ") || "Could not load drafts.");
-    state.salesUsers = [...new Set(payloads.flatMap((data) => data.salesUsers || state.salesUsers))];
-    state.drafts = payloads.flatMap((data) => data.drafts || []);
-    state.draftFunnel = null;
-    renderDraftSummary(mergeDraftSummaries(payloads));
+    const response = await fetch("/api/drafts?market=US,CA,AU&limit=3000", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not load drafts.");
+    state.salesUsers = data.salesUsers || state.salesUsers;
+    populateSalesUserControls();
+    state.drafts = data.drafts || [];
+    state.draftFunnel = data.funnel || null;
+    renderDraftSummary(data.summary || {});
     renderRulesFunnel();
     applyFilters();
-    els.draftSubtitle.textContent = `${state.drafts.length.toLocaleString()} open draft orders with manual shipping loaded from Data Hub.${failures.length ? ` ${failures.length} store load failed: ${failures.join(" | ")}` : ""}`;
+    els.draftSubtitle.textContent = `${state.drafts.length.toLocaleString()} open draft orders with manual shipping loaded from Data Hub.`;
   } catch (error) {
     state.drafts = [];
     state.draftFunnel = null;
@@ -335,69 +458,6 @@ async function loadDrafts() {
     renderRulesFunnel();
     applyFilters();
     els.draftSubtitle.textContent = error.message;
-  }
-}
-
-async function loadDraftMarketPages(market) {
-  const pageSize = 500;
-  const maxPages = 6;
-  const payloads = [];
-  let offset = 0;
-  let hasMore = true;
-  let pageCount = 0;
-  while (hasMore && pageCount < maxPages) {
-    const response = await fetch(`/api/drafts?market=${market}&limit=${pageSize}&offset=${offset}`, { cache: "no-store" });
-    const data = await parseJsonResponse(response, `Draft API ${market} offset ${offset}`);
-    if (!response.ok) throw new Error(data.error || `Could not load ${market} drafts at offset ${offset}.`);
-    payloads.push(data);
-    hasMore = Boolean(data.hasMore);
-    offset = Number(data.nextOffset || offset + pageSize);
-    pageCount += 1;
-  }
-  return payloads;
-}
-
-function mergeDraftSummaries(payloads) {
-  const merged = {
-    byMarket: {},
-    latestCreatedAt: {},
-  };
-  for (const market of markets) {
-    merged.byMarket[market] = { total: 0, valid: 0, assigned: 0, amount: 0, validAmount: 0, manualShipping: 0 };
-  }
-  for (const payload of payloads) {
-    const byMarket = payload.summary?.byMarket || {};
-    for (const market of markets) {
-      const item = byMarket[market];
-      if (!item) continue;
-      merged.byMarket[market].total += Number(item.total || 0);
-      merged.byMarket[market].valid += Number(item.valid || 0);
-      merged.byMarket[market].assigned += Number(item.assigned || 0);
-      merged.byMarket[market].amount += Number(item.amount || 0);
-      merged.byMarket[market].validAmount += Number(item.validAmount || 0);
-      merged.byMarket[market].manualShipping += Number(item.manualShipping || 0);
-    }
-    const latest = payload.summary?.latestCreatedAt || {};
-    for (const market of markets) {
-      if (latest[market] && (!merged.latestCreatedAt[market] || new Date(latest[market]) > new Date(merged.latestCreatedAt[market]))) {
-        merged.latestCreatedAt[market] = latest[market];
-      }
-    }
-  }
-  return merged;
-}
-
-async function parseJsonResponse(response, label = "Dashboard API") {
-  const contentType = response.headers.get("content-type") || "";
-  const bodyText = await response.text();
-  if (!contentType.includes("application/json")) {
-    const preview = bodyText.replace(/\s+/g, " ").trim().slice(0, 120);
-    throw new Error(`${label} returned ${response.status} ${response.statusText || ""} as ${contentType || "unknown content type"} instead of JSON. ${preview}`);
-  }
-  try {
-    return bodyText ? JSON.parse(bodyText) : {};
-  } catch (error) {
-    throw new Error(`${label} returned invalid JSON. ${error.message}`);
   }
 }
 
@@ -409,11 +469,22 @@ function setActiveTab(tabName) {
 }
 
 function renderUserMode() {
-  els.currentUserLabel.textContent = state.authEmail
-    ? `${state.user || "Not signed in"} (${state.role}) - ${state.authEmail}`
-    : `${state.user || "Not signed in"} (${state.role})`;
+  const isSalesPreview = state.salesPreview.active;
+  const originalRole = isSalesPreview ? state.salesPreview.adminRole : state.role;
+  const canPreviewSales = isSalesPreview || originalRole === "admin" || state.user === "Admin";
+  els.currentUserLabel.textContent = isSalesPreview
+    ? `Previewing ${state.user} sales view`
+    : state.authEmail
+      ? `${state.user || "Not signed in"} (${state.role}) - ${state.authEmail}`
+      : `${state.user || "Not signed in"} (${state.role})`;
   document.body.dataset.role = state.role;
   document.body.dataset.auth = state.authMode;
+  document.body.dataset.salesPreview = isSalesPreview ? "true" : "false";
+  els.adminSalesPreviewControls.hidden = !canPreviewSales;
+  els.adminSalesPreviewSelect.hidden = isSalesPreview;
+  els.adminSalesPreviewButton.hidden = isSalesPreview;
+  els.adminSalesPreviewButton.disabled = !els.adminSalesPreviewSelect.value;
+  els.adminSalesPreviewExitButton.hidden = !isSalesPreview;
   if (state.authMode === "cloudflare_access") {
     els.switchUserButton.textContent = "Cloudflare verified";
     els.switchUserButton.disabled = true;
@@ -422,16 +493,22 @@ function renderUserMode() {
     els.switchUserButton.disabled = false;
   }
   if (state.role === "sales" && state.user !== "Admin") {
-    setActiveTab("drafts");
+    setActiveTab("workspace");
     els.salesFilter.value = state.user;
     els.salesFilter.disabled = true;
     els.salesDetailSalesFilter.value = state.user;
     els.salesDetailSalesFilter.disabled = true;
+    els.salesDetailSalesFilter.hidden = true;
+    els.salesAssignedUserLocked.hidden = false;
+    els.salesAssignedUserLocked.textContent = state.user;
     els.draftSalesFilter.value = state.user;
     els.draftSalesFilter.disabled = true;
   } else {
     els.salesFilter.disabled = false;
     els.salesDetailSalesFilter.disabled = false;
+    els.salesDetailSalesFilter.hidden = false;
+    els.salesAssignedUserLocked.hidden = true;
+    els.salesAssignedUserLocked.textContent = "";
     els.draftSalesFilter.disabled = false;
   }
 }
@@ -440,6 +517,30 @@ function populateGradeFilter(leads) {
   const grades = [...new Set(leads.map((lead) => lead.grade).filter(Boolean))].sort((a, b) => gradeRank(a) - gradeRank(b));
   els.gradeFilter.innerHTML = [`<option value="ALL">All grades</option>`, ...grades.map((grade) => `<option value="${grade}">${grade}</option>`)].join("");
   els.salesGradeFilter.innerHTML = [`<option value="ALL">All grades</option>`, ...grades.map((grade) => `<option value="${grade}">${grade}</option>`)].join("");
+}
+
+function populateTimeZoneFilter(leads) {
+  const zones = [...new Set(leads.map((lead) => normalizeTimeZoneFilterValue(lead.timeZone)).filter(Boolean))].sort();
+  const options = [`<option value="ALL">All time zones</option>`, ...zones.map((zone) => `<option value="${escapeAttribute(zone)}">${escapeHtml(zone)}</option>`)];
+  els.timeZoneFilter.innerHTML = options.join("");
+  els.salesTimeZoneFilter.innerHTML = options.join("");
+}
+
+function populateSalesAssignedDateFilter() {
+  const previousValue = els.salesAssignedDateFilter.value || "ALL";
+  const selectedSales = els.salesDetailSalesFilter.value;
+  const dateRows = state.leads
+    .filter((lead) => lead.assignedSales && lead.assignedAt)
+    .filter((lead) => (state.role === "sales" && state.user !== "Admin" ? lead.assignedSales === state.user : true))
+    .filter((lead) => (selectedSales !== "ALL" ? (lead.assignedSales || "") === selectedSales : true))
+    .map((lead) => getAssignedDateOption(lead.assignedAt))
+    .filter(Boolean);
+  const uniqueDates = [...new Map(dateRows.map((row) => [row.value, row])).values()].sort((a, b) => b.value.localeCompare(a.value));
+  els.salesAssignedDateFilter.innerHTML = [
+    `<option value="ALL">All assigned dates</option>`,
+    ...uniqueDates.map((row) => `<option value="${escapeAttribute(row.value)}">${escapeHtml(row.label)}</option>`),
+  ].join("");
+  setSelectValueIfAvailable(els.salesAssignedDateFilter, previousValue);
 }
 
 function renderSummary(summary) {
@@ -508,8 +609,8 @@ function renderDraftSummary(summary) {
       return `
         <article class="metric market-${market.toLowerCase()}">
           <span>${market}</span>
-          <strong>&nbsp; / ${Number(item.valid || 0).toLocaleString()} recovery-ready</strong>
-          <small>&nbsp; / ${formatMoney(item.validAmount || 0, marketCurrency(market))} recovery-ready</small>
+          <strong>${Number(item.valid || 0).toLocaleString()} recovery-ready / ${Number(item.total || 0).toLocaleString()} manual-shipping drafts</strong>
+          <small>${formatMoney(item.validAmount || 0, marketCurrency(market))} recovery-ready / ${formatMoney(item.amount || 0, marketCurrency(market))} total</small>
           <small>${Number(item.assigned || 0).toLocaleString()} valid assigned</small>
           <small>Latest: ${latest[market] ? formatDateTime(latest[market]) : "-"}</small>
         </article>
@@ -519,64 +620,64 @@ function renderDraftSummary(summary) {
 }
 
 function renderRulesFunnel() {
-  const counts = getDraftFunnelCounts(state.drafts);
+  const counts = getFunnelCounts(state.leads);
   const readyRate = counts.all ? Math.round((counts.ready / counts.all) * 100) : 0;
   const steps = [
     {
-      label: "Current-year drafts",
+      label: "All abandoned carts",
       count: counts.all,
       countType: "total",
-      rule: "Only draft orders created in the current year are included in this dashboard.",
-      outcome: "This is the starting pool before draft recovery gates run.",
+      rule: "All abandoned cart leads loaded from Data Hub for US, CA, and AU.",
+      outcome: "This is the starting pool before any lead selection gate runs.",
     },
     {
-      label: "Shopify draft status gate",
-      count: counts.completed,
-      rule: "Completed drafts are removed. Only not-completed Shopify draft orders remain.",
-      outcome: "Filtered status: Completed.",
+      label: "Age gate",
+      count: counts.tooNew,
+      rule: "Leads created less than 72 hours ago are held out first. They can become Valid once they pass 72 hours.",
+      outcome: "Filtered status: Too New.",
     },
     {
-      label: "Manual shipping gate",
-      count: counts.noManualShipping,
-      rule: "Draft must include a manually added shipping charge from Shopify draft amount data.",
-      outcome: "Filtered status: No Manual Shipping.",
+      label: "Phone gate",
+      count: counts.noContact,
+      rule: "Lead must have checkout phone. Checkout email is helpful but not required. Leads older than 30 days remain Valid when they pass the other gates.",
+      outcome: "Filtered status: No Phone.",
     },
     {
-      label: "Shipping amount gate",
-      count: counts.lowShipping,
-      rule: "Manual shipping must be greater than 100.",
-      outcome: "Filtered status: Low Shipping.",
+      label: "Duplicate gate",
+      count: counts.duplicate,
+      rule: "For the same customer name and same product set, keep only the newest checkout.",
+      outcome: "Filtered status: Duplicate.",
     },
     {
-      label: "Dealer sales gate",
-      count: counts.dealerSales,
-      rule: "Dealer sales drafts are visible for review but are not counted as valid recovery opportunities.",
-      outcome: "Filtered status: Dealer Sales.",
+      label: "Recovered gate",
+      count: counts.recovered,
+      rule: "If Data Hub marks the abandoned cart as recovered, remove it from active lead selection. If the recovered order happened after a prior assignment, it can be counted as Recovered by Sales; otherwise it is Recovered Auto.",
+      outcome: "Filtered status: Recovered.",
     },
     {
       label: "Inventory gate",
       count: counts.noInventory,
-      rule: "At least one non-surcharge product in the draft must have usable inventory from Data Hub product inventory data.",
+      rule: "At least one non-PP / non-PSP / non-surcharge product in the cart must have usable inventory from Data Hub product inventory data.",
       outcome: "Filtered status: No Inventory.",
     },
     {
-      label: "Margin cost check",
-      count: 0,
+      label: "Valid before manual review",
+      count: counts.afterInventory,
       countType: "total",
-      rule: "Margin uses product selling price minus 18%, minus freight shipping budget, minus landed cost. This gate is informational only for now.",
-      outcome: "This check does not remove drafts yet.",
+      rule: "Leads that pass age, phone, duplicate, recovered, and inventory gates become valid candidates before manual review.",
+      outcome: "Manual review can still remove spam, tests, bad addresses, or leads sales already rejected.",
     },
     {
       label: "Manually marked gate",
       count: counts.manualMarked,
-      rule: "Admin or sales can manually mark a draft Invalid after review.",
-      outcome: `${counts.manualMarked.toLocaleString()} drafts are currently manually marked out.`,
+      rule: "Admin or sales can manually mark a lead Invalid after review, for reasons like spam, internal test, fake customer, bad fit, or not interested.",
+      outcome: `${counts.manualMarked.toLocaleString()} leads are currently manually marked out.`,
     },
     {
-      label: "Valid drafts",
+      label: "Valid leads",
       count: counts.ready,
       countType: "total",
-      rule: "Final Valid drafts are the high-shipping not-completed drafts available for follow-up.",
+      rule: "Final Valid leads are the active abandoned cart leads available for assignment.",
       outcome: "This count should match the Valid filter when no other filters are applied.",
     },
   ];
@@ -594,15 +695,30 @@ function renderRulesFunnel() {
   const statusRules = [
     ["Valid", "Lead qualifies for sales follow-up."],
     ["Drafted", "A draft has been created for the lead and it should be tracked separately from active Valid leads."],
+    ["Closed", "The lead has been closed after review or follow-up and is no longer counted as active Valid assigned work."],
     ["Invalid", "Lead does not qualify, or sales/admin manually marked it as not useful."],
     ["Recovered Auto", "Data Hub shows a recovered order, but there was no earlier sales assignment before the order date."],
     ["Recovered by Sales", "The lead was assigned to a sales person before the recovered order was created."],
   ];
 
+  const salesWorkflowRules = [
+    ["Review first", "Check the product, checkout value, phone, email, shipping address, time zone, current price, and inventory before calling."],
+    ["Call priority", "Start from the highest grade leads first. A+! is the highest priority, then A+, A!, A, A-!, A-, then B grades."],
+    ["Use lead status", "Keep workable leads as Valid. Use Drafted when a draft has been created, Closed when follow-up is finished, and Invalid when the lead should not be worked."],
+    ["Do not overwrite recovered", "Recovered Auto and Recovered by Sales are system recovery statuses. Only change them if admin confirms the lead status is wrong."],
+  ];
+
+  const notesRules = [
+    ["Write the result", "Notes should explain what happened, not just say called. Example: Called, no answer, voicemail left."],
+    ["Use names or blockers", "If the lead is invalid, write the clear reason, such as fake info, wrong number, not interested, already purchased, test, or internal person."],
+    ["Add next step", "If follow-up is needed, write the callback date/time or action, such as call back Friday morning or waiting for freight quote."],
+    ["Keep it short", "Use one clear sentence when possible so admin and other sales can quickly understand the lead history."],
+  ];
+
   els.rulesFunnel.innerHTML = `
     <div class="rules-summary">
-      <article><span>Current-year drafts</span><strong>${counts.all.toLocaleString()}</strong></article>
-      <article><span>Valid drafts</span><strong>${counts.ready.toLocaleString()}</strong></article>
+      <article><span>Abandoned carts</span><strong>${counts.all.toLocaleString()}</strong></article>
+      <article><span>Valid leads</span><strong>${counts.ready.toLocaleString()}</strong></article>
       <article><span>Removed or inactive</span><strong>${(counts.all - counts.ready).toLocaleString()}</strong></article>
       <article><span>Valid rate</span><strong>${readyRate}%</strong></article>
     </div>
@@ -631,8 +747,10 @@ function renderRulesFunnel() {
       ${renderRuleGroup("Assignment Rules", [
         ["Manual only", "Leads stay unassigned until a user selects a sales owner."],
         ["No auto assignment", "Time zone and market are shown for review, but they do not assign leads automatically."],
-        ["Storage", "Assignments and notes are saved by the local dashboard service until Data Hub write access is available."],
+        ["Storage", "Assignments, lead status, and notes are saved through Data Hub when write access is available."],
       ])}
+      ${renderRuleGroup("Sales Follow-up Rules", salesWorkflowRules)}
+      ${renderRuleGroup("Notes Rules", notesRules)}
     </div>
   `;
 }
@@ -699,7 +817,6 @@ function getDraftFunnelCounts(drafts) {
     completed: 0,
     noManualShipping: 0,
     lowShipping: 0,
-    dealerSales: 0,
     noInventory: 0,
     manualMarked: 0,
     ready: 0,
@@ -709,7 +826,6 @@ function getDraftFunnelCounts(drafts) {
     if (draft.completed) counts.completed += 1;
     if (!draft.hasManualShipping) counts.noManualShipping += 1;
     if (Number(draft.manualShippingPrice || 0) <= 100) counts.lowShipping += 1;
-    if (draft.funnelStatus === "Dealer Sales") counts.dealerSales += 1;
     if (draft.funnelStatus === "Needs Review") counts.noInventory += 1;
     if (draft.leadStatus !== "Valid" && draft.funnelStatus !== "Needs Review") counts.manualMarked += 1;
     if (draft.leadStatus === "Valid") counts.ready += 1;
@@ -722,12 +838,22 @@ function applyFilters() {
   const market = els.marketFilter.value;
   const leadStatus = els.leadStatusFilter.value;
   const grade = els.gradeFilter.value;
+  const bangGrade = els.bangGradeFilter.value;
   const sales = els.salesFilter.value;
+  const timeZone = els.timeZoneFilter.value;
+  const minSubtotal = parseSubtotalFilter(els.minSubtotalFilter.value);
+  const maxSubtotal = parseSubtotalFilter(els.maxSubtotalFilter.value);
   const query = els.searchInput.value.trim().toLowerCase();
   const salesMarket = els.salesMarketFilter.value;
   const salesLeadStatus = els.salesLeadStatusFilter.value;
   const salesGrade = els.salesGradeFilter.value;
+  const salesBangGrade = els.salesBangGradeFilter.value;
   const salesDetailSales = els.salesDetailSalesFilter.value;
+  populateSalesAssignedDateFilter();
+  const salesAssignedDate = els.salesAssignedDateFilter.value;
+  const salesTimeZone = els.salesTimeZoneFilter.value;
+  const salesMinSubtotal = parseSubtotalFilter(els.salesMinSubtotalFilter.value);
+  const salesMaxSubtotal = parseSubtotalFilter(els.salesMaxSubtotalFilter.value);
   const salesQuery = els.salesSearchInput.value.trim().toLowerCase();
   const draftMarket = els.draftMarketFilter.value;
   const draftLeadStatus = els.draftLeadStatusFilter.value;
@@ -738,7 +864,10 @@ function applyFilters() {
     if (market !== "ALL" && lead.market !== market) return false;
     if (leadStatus !== "ALL" && getLeadStatus(lead) !== leadStatus) return false;
     if (grade !== "ALL" && lead.grade !== grade) return false;
+    if (bangGrade === "ONLY" && !String(lead.grade || "").includes("!")) return false;
     if (sales !== "ALL" && (lead.assignedSales || "") !== sales) return false;
+    if (timeZone !== "ALL" && normalizeTimeZoneFilterValue(lead.timeZone) !== timeZone) return false;
+    if (!matchesSubtotalRange(lead, minSubtotal, maxSubtotal)) return false;
     if (state.role === "sales" && state.user !== "Admin" && lead.assignedSales !== state.user) return false;
     if (!query) return true;
     return searchBlob(lead).includes(query);
@@ -754,8 +883,14 @@ function applyFilters() {
     .filter((lead) => (salesMarket !== "ALL" ? lead.market === salesMarket : true))
     .filter((lead) => (salesLeadStatus !== "ALL" ? getLeadStatus(lead) === salesLeadStatus : true))
     .filter((lead) => (salesGrade !== "ALL" ? lead.grade === salesGrade : true))
+    .filter((lead) => (salesBangGrade === "ONLY" ? String(lead.grade || "").includes("!") : true))
+    .filter((lead) => (salesAssignedDate !== "ALL" ? getAssignedDateKey(lead.assignedAt) === salesAssignedDate : true))
+    .filter((lead) => (salesTimeZone !== "ALL" ? normalizeTimeZoneFilterValue(lead.timeZone) === salesTimeZone : true))
+    .filter((lead) => matchesSubtotalRange(lead, salesMinSubtotal, salesMaxSubtotal))
     .filter((lead) => (salesQuery ? searchBlob(lead).includes(salesQuery) : true))
     .sort(sortByGradeThenDate);
+  state.salesPage = Math.min(state.salesPage, getSalesPageCount());
+  if (state.salesPage < 1) state.salesPage = 1;
 
   state.visibleDrafts = state.drafts
     .filter((draft) => (draftMarket !== "ALL" ? draft.market === draftMarket : true))
@@ -868,8 +1003,9 @@ function renderTableHeads() {
     "Shopify Draft Status",
     "Subtotal",
     "Estimated Cost",
-    "Margin",
     "Shipping",
+    "Margin without shipping",
+    "Margin with shipping",
     "Customer",
     "Phone",
     "Email",
@@ -885,29 +1021,84 @@ function renderTableHeads() {
 function renderLeadRows() {
   state.pagedVisibleLeads = getPagedVisibleLeads();
   if (!state.visibleLeads.length) {
-    els.leadTableBody.innerHTML = `<tr class="empty-row"><td colspan="67">No leads match the current filters.</td></tr>`;
+    els.leadTableBody.innerHTML = `<tr class="empty-row"><td colspan="62">No leads match the current filters.</td></tr>`;
+    els.leadCardList.innerHTML = "";
     updateBulkAssignBar();
     updateLeadPager();
     return;
   }
   els.leadTableBody.innerHTML = state.pagedVisibleLeads.map((lead) => renderLeadRow(lead, { selectable: true })).join("");
+  els.leadCardList.innerHTML = "";
   updateBulkAssignBar();
   updateLeadPager();
 }
 
 function renderSalesRows() {
+  const salesCardMode = state.role === "sales" && state.user !== "Admin";
+  updateSalesPager();
   if (!state.salesVisibleLeads.length) {
-    els.salesTableBody.innerHTML = `<tr class="empty-row"><td colspan="66">No active assigned leads match the current filters.</td></tr>`;
+    els.salesTableBody.innerHTML = salesCardMode ? "" : `<tr class="empty-row"><td colspan="61">No active assigned leads match the current filters.</td></tr>`;
+    els.salesQuickList.innerHTML = salesCardMode ? `<div class="lead-card-empty">No leads match the current sales filters.</div>` : "";
+    els.salesCardList.innerHTML = salesCardMode ? `<div class="lead-card-empty">No active assigned leads match the current filters.</div>` : "";
     els.salesDetailSubtitle.textContent = "No assigned lead detail to show.";
     return;
   }
+  if (salesCardMode) {
+    const pagedSalesLeads = getPagedSalesVisibleLeads();
+    els.salesTableBody.innerHTML = "";
+    els.salesQuickList.innerHTML = renderSalesQuickList();
+    els.salesCardList.innerHTML = pagedSalesLeads.map((lead) => renderLeadCard(lead)).join("");
+    els.salesDetailSubtitle.textContent = `${state.salesVisibleLeads.length.toLocaleString()} active assigned leads. Showing ${state.salesPage.toLocaleString()} of ${getSalesPageCount().toLocaleString()}.`;
+    updateSalesPager();
+    return;
+  }
   els.salesTableBody.innerHTML = state.salesVisibleLeads.map((lead) => renderLeadRow(lead)).join("");
+  els.salesQuickList.innerHTML = "";
+  els.salesCardList.innerHTML = "";
   els.salesDetailSubtitle.textContent = `${state.salesVisibleLeads.length.toLocaleString()} active assigned leads.`;
+  updateSalesPager();
+}
+
+function renderSalesQuickList() {
+  const activeLead = getPagedSalesVisibleLeads()[0];
+  const activeKey = activeLead ? leadSelectionKey(activeLead) : "";
+  return `
+    <div class="sales-quick-list-header">
+      <span>Quick list</span>
+      <small>Click a row to view the full lead below.</small>
+    </div>
+    <div class="sales-quick-rows">
+      ${state.salesVisibleLeads.map((lead, index) => renderSalesQuickRow(lead, index, leadSelectionKey(lead) === activeKey)).join("")}
+    </div>
+  `;
+}
+
+function renderSalesQuickRow(lead, index, isActive) {
+  const productText = lead.lineItems.map((item) => item.sku || item.title).filter(Boolean).slice(0, 3).join(", ");
+  return `
+    <button
+      type="button"
+      class="sales-quick-row ${isActive ? "is-active" : ""}"
+      data-action="select-sales-lead"
+      data-index="${index}"
+      data-id="${escapeAttribute(lead.id)}"
+      data-market="${escapeAttribute(lead.market)}"
+    >
+      <span class="sales-quick-main">
+        <b>${escapeHtml(lead.checkout || "-")}</b>
+        <small>${escapeHtml(lead.shippingName || lead.name || "-")}</small>
+      </span>
+      <span class="grade">${escapeHtml(lead.grade || "-")}</span>
+      <span>${escapeHtml(formatMoney(lead.subtotal, lead.currency))}</span>
+      <span>${escapeHtml(getAssignedDateKey(lead.assignedAt) || "-")}</span>
+      <span>${escapeHtml(productText || "-")}</span>
+    </button>
+  `;
 }
 
 function renderDraftRows() {
   if (!state.visibleDrafts.length) {
-    els.draftTableBody.innerHTML = `<tr class="empty-row"><td colspan="58">No high-shipping drafts match the current filters.</td></tr>`;
+    els.draftTableBody.innerHTML = `<tr class="empty-row"><td colspan="59">No draft recovery leads match the current filters.</td></tr>`;
     return;
   }
   els.draftTableBody.innerHTML = state.visibleDrafts.map(renderDraftRow).join("");
@@ -996,6 +1187,144 @@ function renderLeadRow(lead, options = {}) {
   `;
 }
 
+function renderLeadCard(lead, options = {}) {
+  const isRecovered = getLeadStatus(lead).startsWith("Recovered") || lead.funnelStatus === "Recovered";
+  const disabledSales = state.role === "sales" || isRecovered ? "disabled" : "";
+  const selectionKey = leadSelectionKey(lead);
+  const bulkDisabledReason = getBulkDisabledReason(lead);
+  const marketClass = `lead-form-card-${String(lead.market || "").toLowerCase()}`;
+  const selectableControl = options.selectable
+    ? `<label class="lead-card-select" title="${escapeAttribute(bulkDisabledReason || "Select for bulk assignment")}">
+        <input
+          type="checkbox"
+          data-action="select-lead"
+          aria-label="Select ${escapeAttribute(lead.checkout)}"
+          ${state.selectedLeadKeys.has(selectionKey) ? "checked" : ""}
+          ${bulkDisabledReason ? "disabled" : ""}
+        />
+        <span>Select</span>
+      </label>`
+    : "";
+  const productCards = lead.lineItems.length
+    ? lead.lineItems.map((item) => renderLeadProductCard(item, lead)).join("")
+    : `<div class="lead-product-card empty-product">No products found.</div>`;
+
+  return `
+    <article data-id="${escapeAttribute(lead.id)}" data-market="${escapeAttribute(lead.market)}" class="lead-form-card ${marketClass}">
+      <div class="lead-form-header">
+        <div class="lead-form-identity">
+          <div class="lead-form-checkout-line">
+            ${selectableControl}
+            <span class="lead-market-pill">${escapeHtml(lead.market)}</span>
+            <span class="grade">${escapeHtml(lead.grade)}</span>
+            <strong class="lead-checkout">${escapeHtml(lead.checkout)}</strong>
+            <button class="copy-row-button" type="button" data-action="copy-row">Copy row</button>
+          </div>
+          <div class="lead-form-muted">Created at ${escapeHtml(formatCreatedAtWithAge(lead) || "-")}</div>
+        </div>
+        <div class="lead-form-actions">
+          <select data-field="leadStatus" class="lead-form-status">
+            ${leadStatuses.map((status) => `<option value="${escapeAttribute(status)}" ${getLeadStatus(lead) === status ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
+          </select>
+          <select data-field="sales" class="lead-form-sales" ${disabledSales}>
+            <option value="">Unassigned</option>
+            ${state.salesUsers.map((name) => `<option value="${escapeAttribute(name)}" ${lead.assignedSales === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+          </select>
+          <button class="notes-submit-button" type="button" data-action="submit-notes">Save</button>
+        </div>
+        <div class="lead-form-amount">
+          <span>Subtotal</span>
+          <strong>${escapeHtml(formatMoney(lead.subtotal, lead.currency))}</strong>
+        </div>
+      </div>
+
+      <div class="lead-form-body">
+        <section class="lead-form-section">
+          <h3>Customer & Address</h3>
+          <div class="lead-form-field-grid">
+            ${leadField("Shipping name", lead.shippingName)}
+            ${leadField("Phone", lead.checkoutPhone)}
+            ${leadField("Email", lead.checkoutEmail)}
+            ${leadField("Time zone", lead.timeZone)}
+          </div>
+          <pre class="lead-address-box">${escapeHtml(lead.address || "")}</pre>
+        </section>
+
+        <section class="lead-form-section lead-form-notes-section">
+          <h3>Lead Notes</h3>
+          <textarea data-field="notes" placeholder="Leads notes">${escapeHtml(getLeadNotes(lead))}</textarea>
+          <div class="notes-actions">
+            <button class="notes-submit-button" type="button" data-action="submit-notes">Submit Notes</button>
+            <span class="notes-save-status" data-role="notes-save-status"></span>
+          </div>
+        </section>
+
+        <section class="lead-form-section">
+          <h3>Assignment & Marketing</h3>
+          <div class="lead-form-field-grid">
+            ${leadField("Assigned time", formatAssignedTime(lead))}
+            ${leadField("Discount code", lead.checkoutDiscountCode)}
+            ${leadField("Checkout discount", lead.checkoutDiscountAmount ? formatMoney(lead.checkoutDiscountAmount, lead.currency) : "")}
+            ${leadField("Klaviyo max discount", formatMoney(lead.klaviyoMaximumDiscount, lead.currency))}
+            ${leadField("Email subscribed", renderSubscriptionPill(lead.klaviyoEmailSubscribed))}
+            ${leadField("SMS subscribed", renderSubscriptionPill(lead.klaviyoTextSubscribed))}
+          </div>
+        </section>
+      </div>
+
+      <section class="lead-products-section">
+        <h3>Products</h3>
+        <div class="lead-product-list">${productCards}</div>
+      </section>
+
+      <div class="lead-form-footer">
+        ${leadField("Related sales", lead.relatedSales)}
+        ${leadField("Related order", lead.relatedOrderNumber)}
+        ${leadField("Related order date", formatDateTime(lead.relatedOrderCreatedAt))}
+        ${leadField("Recovered by", getRecoveredByValue(lead))}
+        ${leadField("Recovered order", lead.recoveredOrderNumber)}
+        ${leadField("Recovered order date", formatDateTime(lead.recoveredOrderCreatedAt))}
+      </div>
+    </article>
+  `;
+}
+
+function renderLeadProductCard(item, lead) {
+  return `
+    <div class="lead-product-card">
+      <div class="lead-product-title">
+        <strong>${escapeHtml(item.title || "")}</strong>
+        <span>SKU: ${escapeHtml(item.sku || "-")}</span>
+      </div>
+      <div class="lead-product-metric"><span>Checkout</span><strong>${escapeHtml(item.checkoutPrice ? formatMoney(item.checkoutPrice, lead.currency) : "-")}</strong></div>
+      <div class="lead-product-metric"><span>Current</span><strong>${escapeHtml(item.currentPrice ? formatMoney(item.currentPrice, lead.currency) : "-")}</strong></div>
+      <div class="lead-product-metric"><span>Inventory</span><strong>${escapeHtml(item.inventory ?? "-")}</strong></div>
+      <div class="lead-product-metric"><span>Qty</span><strong>${escapeHtml(item.quantity ?? "1")}</strong></div>
+      <div>${item.productUrl ? `<a href="${escapeAttribute(item.productUrl)}" target="_blank" rel="noreferrer">Open URL</a>` : `<span class="lead-form-muted">No URL</span>`}</div>
+    </div>
+  `;
+}
+
+function leadField(label, value) {
+  return `
+    <div class="lead-form-label">${escapeHtml(label)}</div>
+    <div class="lead-form-value">${typeof value === "string" && value.includes("<span") ? value : escapeHtml(value || "-")}</div>
+  `;
+}
+
+function renderSubscriptionPill(value) {
+  const label = value || "Not found";
+  const normalized = String(label).toLowerCase();
+  const tone = normalized.includes("subscribed") && !normalized.includes("not") && !normalized.includes("never") ? "yes" : "no";
+  return `<span class="lead-form-pill ${tone}">${escapeHtml(label)}</span>`;
+}
+
+function formatAssignedTime(lead) {
+  if (!lead.assignedAt) return "-";
+  const relative = formatRelativeAgo(lead.assignedAt);
+  return relative ? `${formatDateTime(lead.assignedAt)} (${relative})` : formatDateTime(lead.assignedAt);
+}
+
 function renderDraftRow(draft) {
   const productCells = [];
   for (let i = 0; i < 7; i += 1) {
@@ -1045,8 +1374,9 @@ function renderDraftRow(draft) {
       ${cell(draft.draftStatus)}
       ${cell(formatMoney(draft.subtotal, draft.currency))}
       ${cell(formatOptionalMoney(draft.totalCost, draft.currency))}
-      ${cell(formatMarginWithPercent(draft.marginWithoutShipping ?? draft.margin, draft.marginWithoutShippingPercent ?? draft.marginPercent, draft.currency))}
       ${cell(formatMoney(draft.manualShippingPrice || 0, draft.currency))}
+      ${cell(formatOptionalMoney(draft.marginWithoutShipping ?? draft.margin, draft.currency))}
+      ${cell(formatOptionalMoney(draft.marginWithShipping, draft.currency))}
       ${cell(draft.name)}
       ${cell(draft.checkoutPhone)}
       ${cell(draft.checkoutEmail)}
@@ -1086,7 +1416,7 @@ function handleLeadSelectionChange(event) {
   }
 
   if (action === "select-lead") {
-    const row = event.target.closest("tr");
+    const row = event.target.closest("[data-id][data-market]");
     const lead = row ? findLead(row.dataset.market, row.dataset.id) : null;
     if (!lead || getBulkDisabledReason(lead)) return;
     const key = leadSelectionKey(lead);
@@ -1109,7 +1439,7 @@ function handleLeadInput(event) {
 async function handleLeadClick(event) {
   const submitNotesButton = event.target.closest("[data-action='submit-notes']");
   if (submitNotesButton) {
-    const row = submitNotesButton.closest("tr");
+    const row = submitNotesButton.closest("[data-id][data-market]");
     const notesControl = row ? row.querySelector('[data-field="notes"]') : null;
     if (!notesControl) return;
     const status = row.querySelector('[data-role="notes-save-status"]');
@@ -1145,7 +1475,7 @@ async function handleLeadClick(event) {
 
   const button = event.target.closest("[data-action='copy-row']");
   if (!button) return;
-  const row = button.closest("tr");
+  const row = button.closest("[data-id][data-market]");
   const lead = findLead(row.dataset.market, row.dataset.id);
   if (!lead) return;
 
@@ -1162,8 +1492,21 @@ async function handleLeadClick(event) {
   }
 }
 
+function handleSalesQuickListClick(event) {
+  const row = event.target.closest("[data-action='select-sales-lead']");
+  if (!row) return;
+  const index = Number(row.dataset.index);
+  if (!Number.isInteger(index) || index < 0 || index >= state.salesVisibleLeads.length) return;
+  state.salesPage = index + 1;
+  renderSalesRows();
+}
+
 async function saveRowFromControl(control) {
-  const row = control.closest("tr");
+  const row = control.closest("[data-id][data-market]");
+  if (!row) {
+    alert("Could not find this lead on the page. Reload the page and try again.");
+    return false;
+  }
   const lead = findLead(row.dataset.market, row.dataset.id);
   if (!lead) {
     alert("Could not find this lead in the loaded table. Reload the page and try again.");
@@ -1338,6 +1681,31 @@ function changeLeadPage(delta) {
   renderLeadRows();
 }
 
+function getSalesPageCount() {
+  return Math.max(1, Math.ceil(state.salesVisibleLeads.length / salesPageSize));
+}
+
+function getPagedSalesVisibleLeads() {
+  const start = (state.salesPage - 1) * salesPageSize;
+  return state.salesVisibleLeads.slice(start, start + salesPageSize);
+}
+
+function updateSalesPager() {
+  const salesCardMode = state.role === "sales" && state.user !== "Admin";
+  const total = state.salesVisibleLeads.length;
+  const pageCount = getSalesPageCount();
+  els.salesCardPager.hidden = !salesCardMode || total <= salesPageSize;
+  els.salesPageInfo.textContent = `${state.salesPage.toLocaleString()} / ${pageCount.toLocaleString()}`;
+  els.salesPrevPage.disabled = state.salesPage <= 1;
+  els.salesNextPage.disabled = state.salesPage >= pageCount;
+}
+
+function changeSalesPage(delta) {
+  const pageCount = getSalesPageCount();
+  state.salesPage = Math.min(pageCount, Math.max(1, state.salesPage + delta));
+  renderSalesRows();
+}
+
 function getRowField(row, field) {
   const control = row.querySelector(`[data-field="${field}"]`);
   return control ? control.value : "";
@@ -1365,6 +1733,23 @@ function searchBlob(lead) {
   ]
     .join(" ")
     .toLowerCase();
+}
+
+function parseSubtotalFilter(value) {
+  if (String(value || "").trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeTimeZoneFilterValue(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function matchesSubtotalRange(lead, minSubtotal, maxSubtotal) {
+  const subtotal = Number(lead.subtotal || 0);
+  if (minSubtotal !== null && subtotal < minSubtotal) return false;
+  if (maxSubtotal !== null && subtotal > maxSubtotal) return false;
+  return true;
 }
 
 function exportCsv(rows, name) {
@@ -1407,8 +1792,9 @@ function getDraftExportHeaders() {
     "Shopify Draft Status",
     "Subtotal",
     "Estimated Cost",
-    "Margin",
     "Shipping",
+    "Margin without shipping",
+    "Margin with shipping",
     "Customer",
     "Phone",
     "Email",
@@ -1429,6 +1815,7 @@ function getExportValues(lead) {
     formatCreatedAtWithAge(lead),
     lead.subtotal,
     lead.assignedSales,
+    formatAssignedTime(lead),
     getLeadNotes(lead),
     lead.shippingName,
     lead.checkoutPhone,
@@ -1475,8 +1862,9 @@ function getDraftExportValues(draft) {
     draft.draftStatus,
     draft.subtotal,
     draft.totalCost ?? "",
-    formatMarginWithPercent(draft.marginWithoutShipping ?? draft.margin, draft.marginWithoutShippingPercent ?? draft.marginPercent, draft.currency),
     draft.manualShippingPrice || 0,
+    draft.marginWithoutShipping ?? draft.margin ?? "",
+    draft.marginWithShipping ?? "",
     draft.name,
     draft.checkoutPhone,
     draft.checkoutEmail,
@@ -1613,13 +2001,6 @@ function formatOptionalPercent(value) {
   return `${Math.round(Number(value) * 1000) / 10}%`;
 }
 
-function formatMarginWithPercent(amount, percent, currency) {
-  const amountText = formatOptionalMoney(amount, currency);
-  const percentText = formatOptionalPercent(percent);
-  if (!amountText) return "";
-  return percentText ? `${amountText} (${percentText})` : amountText;
-}
-
 function formatMarketAmounts(amountsByMarket) {
   const parts = markets
     .filter((market) => Number(amountsByMarket?.[market] || 0))
@@ -1638,6 +2019,28 @@ function formatDateTime(value) {
     minute: "2-digit",
     hour12: false,
     timeZoneName: "short",
+  }).format(new Date(value));
+}
+
+function getAssignedDateOption(value) {
+  const dateKey = getAssignedDateKey(value);
+  if (!dateKey) return null;
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Vancouver",
+    weekday: "long",
+  }).format(new Date(value));
+  return { value: dateKey, label: `${dateKey} (${weekday})` };
+}
+
+function getAssignedDateKey(value) {
+  if (!value) return "";
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Vancouver",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date(value));
 }
 
