@@ -1421,13 +1421,11 @@ pre {
   background: var(--surface);
 }
 
-body[data-role="sales"] .tab-nav,
 body[data-role="sales"] .controls,
 body[data-role="sales"] #marketSummary,
 body[data-role="sales"] .sales-overview-strip,
 body[data-role="sales"] .qualified-panel,
 body[data-role="sales"] #draftsTab,
-body[data-role="sales"] #rulesTab,
 body[data-role="sales"] .sales-card {
   display: none;
 }
