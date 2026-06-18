@@ -144,7 +144,7 @@ async function handleLeads(url, res) {
     };
   }));
 
-  const productLookup = useEnriched ? {} : await buildProductLookupFromCheckouts(checkoutResults);
+  const productLookup = await buildProductLookupFromCheckouts(checkoutResults);
   const klaviyoProfiles = useEnriched || !includeKlaviyo ? [] : await buildKlaviyoProfilesFromCheckouts(checkoutResults);
   const klaviyoLookup = buildKlaviyoLookup(klaviyoProfiles);
 
@@ -188,19 +188,18 @@ async function handleDrafts(url, res) {
     .map((market) => market.trim().toUpperCase())
     .filter((market) => COUNTRY_META[market]);
   const limit = Math.max(25, Math.min(Number(url.searchParams.get("limit") || 10000), 50000));
-  const offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
-  const paged = url.searchParams.has("offset");
   const startedAt = new Date();
 
   const draftResults = await Promise.all(markets.map(async (market) => ({
     market,
-    ...(paged ? await fetchDraftOrdersPage(market, limit, offset) : { records: await fetchDraftOrders(market, limit) }),
+    records: await fetchDraftOrders(market, limit),
   })));
+  const productLookup = await buildProductLookupFromCheckouts(draftResults);
   const assignments = await readAssignments(markets, 10000);
 
   const drafts = draftResults
     .flatMap((result) => result.records.map((record) => ({ record, market: result.market })))
-    .map(({ record, market }) => normalizeDraft(record, market))
+    .map(({ record, market }) => normalizeDraft(record, market, productLookup))
     .filter((draft) => markets.includes(draft.market))
     .filter((draft) => !draft.completed && draft.hasManualShipping)
     .map((draft) => applyAssignment(draft, assignments))
@@ -212,8 +211,6 @@ async function handleDrafts(url, res) {
     fetchedAt: startedAt.toISOString(),
     count: drafts.length,
     markets,
-    hasMore: draftResults.some((result) => result.hasMore),
-    nextOffset: paged ? offset + Math.max(0, ...draftResults.map((result) => result.records.length)) : null,
     source: "draft-recovery",
     summary: buildDraftSummary(drafts),
     salesUsers,
@@ -321,34 +318,6 @@ async function fetchDraftOrders(country, limit) {
   }
 
   return rows;
-}
-
-async function fetchDraftOrdersPage(country, limit, offset = 0) {
-  const pageSize = Math.min(Math.max(Number(limit || 250), 1), 500);
-  const params = new URLSearchParams({
-    country,
-    limit: String(pageSize),
-    offset: String(Math.max(0, Number(offset || 0))),
-  });
-  const response = await fetch(`${DATA_HUB_BASE_URL}/api/data-hub/reports/draft-recovery?${params}`, {
-    headers: { "x-api-key": DATA_HUB_API_KEY },
-  });
-  const text = await response.text();
-  let payload = {};
-  try {
-    payload = text ? JSON.parse(text) : {};
-  } catch (error) {
-    throw new Error(`Data Hub returned invalid JSON for draft-recovery/${country}.`);
-  }
-  if (!response.ok) {
-    throw new Error(payload.error || `Data Hub returned ${response.status} for draft-recovery/${country}.`);
-  }
-
-  const records = extractRecords(payload);
-  return {
-    records,
-    hasMore: Boolean(payload.hasMore || payload.has_more) && records.length > 0,
-  };
 }
 
 async function fetchDataHubRecords(table, country, limit) {
@@ -561,7 +530,10 @@ function normalizeCheckout(record, market, productLookup, klaviyoLookup) {
   const raw = record.raw || record.payload || record.data || record.checkout || record;
   const checkoutId = text(raw.id || raw.checkout_gid || raw.checkout_id || raw.checkoutId || raw.token || record.id);
   const checkoutName = text(raw.name || raw.checkout_name || raw.checkoutName || record.name || (checkoutId ? `#${checkoutId}` : ""));
-  const enrichedProductLookup = buildProductLookupFromEnriched(raw.product_lookup_json, market);
+  const enrichedProductLookup = mergeProductLookups(
+    buildProductLookupFromEnriched(raw.product_lookup_json, market),
+    productLookup?.[market],
+  );
   const lineItems = getLineItems(raw)
     .filter((item) => !isPpProduct(item))
     .map((item) => enrichLineItemFromProducts(item, enrichedProductLookup || productLookup?.[market]));
@@ -721,9 +693,7 @@ function normalizeDraft(record, market, productLookup) {
     margin: marginSummary.margin,
     marginPercent: marginSummary.marginPercent,
     marginWithoutShipping: marginSummary.marginWithoutShipping,
-    marginWithoutShippingPercent: marginSummary.marginWithoutShippingPercent,
     marginWithShipping: marginSummary.marginWithShipping,
-    marginWithShippingPercent: marginSummary.marginWithShippingPercent,
     currency,
     checkoutPhone: phone,
     checkoutEmail: email,
@@ -757,17 +727,7 @@ function normalizeDraft(record, market, productLookup) {
 
 function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippingIncludedInSubtotal = false) {
   const costs = lineItems.map((item) => item.totalCost).filter((value) => value !== null && value !== undefined);
-  if (!costs.length) {
-    return {
-      totalCost: null,
-      margin: null,
-      marginPercent: null,
-      marginWithoutShipping: null,
-      marginWithoutShippingPercent: null,
-      marginWithShipping: null,
-      marginWithShippingPercent: null,
-    };
-  }
+  if (!costs.length) return { totalCost: null, margin: null, marginPercent: null, marginWithoutShipping: null, marginWithShipping: null };
   const totalCost = costs.reduce((sum, value) => sum + Number(value || 0), 0);
   const subtotalRevenue = Number(subtotal || 0);
   const shipping = Number(shippingAmount || 0);
@@ -775,17 +735,8 @@ function calculateMarginSummary(lineItems, subtotal, shippingAmount = 0, shippin
   const revenueWithShipping = shippingIncludedInSubtotal ? subtotalRevenue : subtotalRevenue + shipping;
   const marginWithoutShipping = revenueWithoutShipping - totalCost;
   const marginWithShipping = revenueWithShipping - totalCost;
-  const marginWithoutShippingPercent = revenueWithoutShipping ? marginWithoutShipping / revenueWithoutShipping : null;
-  const marginWithShippingPercent = revenueWithShipping ? marginWithShipping / revenueWithShipping : null;
-  return {
-    totalCost,
-    margin: marginWithoutShipping,
-    marginPercent: marginWithoutShippingPercent,
-    marginWithoutShipping,
-    marginWithoutShippingPercent,
-    marginWithShipping,
-    marginWithShippingPercent,
-  };
+  const marginPercent = revenueWithoutShipping ? marginWithoutShipping / revenueWithoutShipping : null;
+  return { totalCost, margin: marginWithoutShipping, marginPercent, marginWithoutShipping, marginWithShipping };
 }
 
 function getDraftShippingLine(raw) {
@@ -801,8 +752,9 @@ function getDraftShippingLine(raw) {
 
 function hasManualShippingLine(line) {
   if (!line || typeof line !== "object") return false;
+  const label = text(line.title || line.name || line.code || line.custom || line.handle);
   const price = number(line.price || line.price_set?.shop_money?.amount || line.priceSet?.shopMoney?.amount);
-  return price > 0;
+  return Boolean(label) || price > 0;
 }
 
 function isManualShippingLineItem(item) {
@@ -816,11 +768,10 @@ function applyDraftOpportunityStatus(draft) {
   const hasProduct = draft.lineItems.length > 0;
   const hasInventory = draft.lineItems.some((item) => itemHasInventory(item));
   const rawSavedLeadStatus = text(draft.leadStatus || draft.salesStatus);
-  const savedLeadStatus = ["Valid", "Invalid", "Recovered Auto", "Recovered by Sales"].includes(rawSavedLeadStatus)
+  const savedLeadStatus = ["Valid", "Drafted", "Closed", "Invalid", "Recovered Auto", "Recovered by Sales"].includes(rawSavedLeadStatus)
     ? rawSavedLeadStatus
     : "";
   const blockedReasons = [];
-  if (Number(draft.manualShippingPrice || 0) <= 100) blockedReasons.push("Shipping is 100 or less");
   if (!hasProduct || !hasInventory) blockedReasons.push("No product with known inventory");
 
   const leadStatus = savedLeadStatus || (blockedReasons.length ? "Invalid" : "Valid");
@@ -877,11 +828,7 @@ function normalizeLineItem(item) {
       item.discountedUnitPriceSet?.shopMoney?.amount,
   );
   const currentPrice = number(item.current_price || item.currentPrice || item.variant_price || item.variant?.price || item.product?.price);
-  const landedCost = nullableNumber(item.landed_cost || item.landedCost || item.aj_landed_cost || item.ajLandedCost);
-  const freightShippingBudget = nullableNumber(item.freight_shipping_budget || item.freightShippingBudget || item.dd_freight_shipping_budget || item.ddFreightShippingBudget);
-  const marginFeeRate = nullableNumber(item.margin_fee_rate || item.marginFeeRate) ?? 0.18;
-  const estimatedCost = nullableNumber(item.estimated_cost || item.estimatedCost);
-  const cost = nullableNumber(item.cost || item.rate_sheet_cost || item.rateSheetCost || item.unit_cost || item.product_cost) ?? estimatedCost ?? landedCost;
+  const cost = nullableNumber(item.cost || item.rate_sheet_cost || item.rateSheetCost || item.landed_cost || item.unit_cost || item.product_cost);
   const inventory = number(
     item.inventory ??
       item.inventory_quantity ??
@@ -894,26 +841,18 @@ function normalizeLineItem(item) {
       item.available,
   );
   const productUrl = text(item.product_url || item.productUrl || item.url || "");
-  const extended = { title, sku, quantity, checkoutPrice, currentPrice, cost, landedCost, freightShippingBudget, marginFeeRate, estimatedCost, inventory, productUrl };
+  const extended = { title, sku, quantity, checkoutPrice, currentPrice, cost, inventory, productUrl };
   return addMarginFields(extended);
 }
 
 function addMarginFields(item) {
-  const landedCost = item.landedCost;
-  const freightShippingBudget = item.freightShippingBudget;
-  const marginFeeRate = item.marginFeeRate ?? 0.18;
-  const fallbackCost = item.cost;
+  const cost = item.cost;
   const quantity = Number(item.quantity || 1);
-  const unitPrice = Number(item.checkoutPrice || item.currentPrice || 0);
-  const revenue = unitPrice * quantity;
-  const hasRateSheetCost = landedCost !== null && landedCost !== undefined && freightShippingBudget !== null && freightShippingBudget !== undefined;
-  const unitEstimatedCost = hasRateSheetCost
-    ? unitPrice * Number(marginFeeRate || 0.18) + Number(freightShippingBudget || 0) + Number(landedCost || 0)
-    : fallbackCost;
-  const totalCost = unitEstimatedCost === null || unitEstimatedCost === undefined ? null : Number(unitEstimatedCost || 0) * quantity;
+  const revenue = Number(item.checkoutPrice || 0) * quantity;
+  const totalCost = cost === null || cost === undefined ? null : Number(cost || 0) * quantity;
   const margin = totalCost === null ? null : revenue - totalCost;
   const marginPercent = margin === null || !revenue ? null : margin / revenue;
-  return { ...item, cost: unitEstimatedCost, landedCost, freightShippingBudget, marginFeeRate, totalCost, margin, marginPercent };
+  return { ...item, totalCost, margin, marginPercent };
 }
 
 function buildProductLookupByMarket(results) {
@@ -933,10 +872,7 @@ function buildProductLookupFromProductLookupRecords(records, market) {
     lookup.set(sku, {
       title: text(record.product_title || record.title),
       currentPrice: number(record.current_price || record.price),
-      cost: nullableNumber(record.estimated_cost || record.cost || record.rate_sheet_cost || record.unit_cost || record.product_cost),
-      landedCost: nullableNumber(record.landed_cost || record.landedCost),
-      freightShippingBudget: nullableNumber(record.freight_shipping_budget || record.freightShippingBudget),
-      marginFeeRate: nullableNumber(record.margin_fee_rate || record.marginFeeRate) ?? 0.18,
+      cost: nullableNumber(record.cost || record.rate_sheet_cost || record.landed_cost || record.unit_cost || record.product_cost),
       inventory: getLookupInventory(record),
       productUrl: text(record.product_url) || getProductUrlFromHandle(record.handle, market),
     });
@@ -948,6 +884,25 @@ function buildProductLookupFromEnriched(records, market) {
   const direct = normalizeJsonArray(records);
   if (!direct.length) return null;
   return buildProductLookupFromProductLookupRecords(direct, market);
+}
+
+function mergeProductLookups(primary, fallback) {
+  if (!primary) return fallback;
+  if (!fallback) return primary;
+  const merged = new Map(primary);
+  for (const [sku, fallbackProduct] of fallback.entries()) {
+    const current = merged.get(sku);
+    if (!current) {
+      merged.set(sku, fallbackProduct);
+      continue;
+    }
+    merged.set(sku, {
+      ...fallbackProduct,
+      ...current,
+      productUrl: current.productUrl || fallbackProduct.productUrl || "",
+    });
+  }
+  return merged;
 }
 
 function normalizeJsonArray(value) {
@@ -1009,9 +964,6 @@ function enrichLineItemFromProducts(item, productLookup) {
     title: item.title || product.title,
     currentPrice: product.currentPrice ?? item.currentPrice,
     cost: product.cost ?? item.cost,
-    landedCost: product.landedCost ?? item.landedCost,
-    freightShippingBudget: product.freightShippingBudget ?? item.freightShippingBudget,
-    marginFeeRate: product.marginFeeRate ?? item.marginFeeRate,
     inventory: product.inventory ?? item.inventory,
     productUrl: product.productUrl || item.productUrl,
   });
@@ -1533,9 +1485,33 @@ function buildAssignmentMap(rows) {
   for (const row of rows) {
     const assignment = normalizeAssignmentRecord(row);
     if (!assignment) continue;
-    assignments[`${assignment.market}:${assignment.id}`] = assignment;
+    const key = `${assignment.market}:${assignment.id}`;
+    const existing = assignments[key];
+    if (!existing || shouldReplaceAssignment(existing, assignment)) {
+      assignments[key] = assignment;
+    }
   }
   return assignments;
+}
+
+function shouldReplaceAssignment(existing, incoming) {
+  const existingTime = Date.parse(existing.updatedAt || existing.dataHubSyncedAt || existing.assignedAt || "");
+  const incomingTime = Date.parse(incoming.updatedAt || incoming.dataHubSyncedAt || incoming.assignedAt || "");
+  if (Number.isFinite(incomingTime) && Number.isFinite(existingTime) && incomingTime !== existingTime) {
+    return incomingTime > existingTime;
+  }
+  if (Number.isFinite(incomingTime) && !Number.isFinite(existingTime)) return true;
+  if (!Number.isFinite(incomingTime) && Number.isFinite(existingTime)) return false;
+
+  const existingHasNotes = Boolean(text(existing.notes));
+  const incomingHasNotes = Boolean(text(incoming.notes));
+  if (incomingHasNotes !== existingHasNotes) return incomingHasNotes;
+
+  const existingHasSales = Boolean(text(existing.sales));
+  const incomingHasSales = Boolean(text(incoming.sales));
+  if (incomingHasSales !== existingHasSales) return incomingHasSales;
+
+  return true;
 }
 
 function normalizeAssignmentRecord(row) {
@@ -1658,11 +1634,11 @@ function normalizeSubscriptions(value) {
 }
 
 function marketingStateFromSubscription(marketing) {
-  if (!marketing) return "Unknown";
+  if (!marketing) return "Not found";
   if (marketing.can_receive_email_marketing === true || marketing.can_receive_sms_marketing === true) return "Subscribed";
   const consent = text(marketing.consent || marketing.status || marketing.state).toLowerCase();
   if (["subscribed", "opted_in", "confirmed", "true"].includes(consent)) return "Subscribed";
-  if (!consent) return "Unknown";
+  if (!consent) return "Not found";
   return "Not subscribed";
 }
 
@@ -1670,7 +1646,7 @@ function marketingStateFromLookup(value) {
   const state = text(value).toLowerCase();
   if (!state) return "";
   if (state === "subscribed") return "Subscribed";
-  if (state.includes("not subscribed") || state.includes("never_subscribed") || state.includes("unsubscribed")) {
+  if (state.includes("not subscribed") || state.includes("never subscribed") || state.includes("never_subscribed") || state.includes("unsubscribed")) {
     return "Not subscribed";
   }
   return "";
@@ -1688,8 +1664,8 @@ function findKlaviyoProfile(market, email, lookup) {
 }
 
 function getKlaviyoMarketingState(profile, type) {
-  if (!profile) return "Unknown";
-  return type === "email" ? profile.emailState || "Unknown" : profile.smsState || "Unknown";
+  if (!profile) return "Not found";
+  return type === "email" ? profile.emailState || "Not found" : profile.smsState || "Not found";
 }
 
 function normalizeEmail(value) {
@@ -1715,7 +1691,7 @@ function calculateKlaviyoMaxDiscount(subtotal) {
 function normalizeLeadStatus(value) {
   const status = text(value);
   if (status === "Recovered") return "Recovered by Sales";
-  return ["Valid", "Invalid", "Recovered Auto", "Recovered by Sales"].includes(status) ? status : "Valid";
+  return ["Valid", "Drafted", "Closed", "Invalid", "Recovered Auto", "Recovered by Sales"].includes(status) ? status : "Valid";
 }
 
 function getDiscountCode(raw) {
@@ -1738,7 +1714,7 @@ function getMarketingState(raw, type) {
   if (direct === true) return "Subscribed";
   const state = text(consent?.state || consent?.marketingState || consent?.status || direct).toLowerCase();
   if (["subscribed", "opted_in", "confirmed", "true"].includes(state)) return "Subscribed";
-  if (!state) return "Unknown";
+  if (!state) return "Not found";
   return "Not subscribed";
 }
 
